@@ -1,5 +1,6 @@
 use tfhe::prelude::*;
 use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint32, FheUint8};
+use sha2::{Sha256, Digest};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Basic configuration to use homomorphic integers
@@ -47,4 +48,72 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Float division result: {}", clear_div_f);
 
     Ok(())
+}
+
+// implement schnorr protocol
+struct Schnorr {
+    private_key: u32,
+    public_key: u32,
+    G: u32,
+}
+
+impl Schnorr {
+    fn new(private_key: u32) -> Self {
+        let G: u32 = 2; // Define G
+        let public_key = private_key * G;
+        Self { private_key, public_key, G }
+    }
+
+    fn hash(&self, r: u32, pk: u32, message: &str) -> u32 {
+        let mut hasher_input = Vec::new();
+        hasher_input.extend(&r.to_be_bytes());
+        hasher_input.extend(&pk.to_be_bytes());
+        hasher_input.extend(message.as_bytes());
+        let mut hasher = Sha256::new();
+        hasher.update(&hasher_input);
+        let hash_result = hasher.finalize();
+        u32::from_be_bytes(hash_result[..4].try_into().expect("Hash output too short")) & 0xFFFF
+    }
+
+    fn sign(&self, message: &str) -> (u32, u32) {
+        // 1. generate a random number k
+        // let k = rand::thread_rng().gen_range(0..=255);
+        let k = 2;
+        // 2. calculate r = k * G
+        let r = k * self.G;
+        // 3. calculate public key pk = private_key * G
+        let pk = self.private_key * self.G;
+        // 4. calculate e = hash(r || pk || message)
+        let e = self.hash(r, pk, message);
+        println!("e: {}", e);
+        // 5. calculate s = k + e * private_key
+        let s = k + e * self.private_key;
+        // 6. return signature (r, s)
+        (r, s)
+    }
+
+    fn verify(&self, message: &str, signature: (u32, u32)) -> bool {
+        // 1. get the signature
+        let (r, s) = signature;
+        // 2. get the public key
+        let pk = self.public_key;
+        // 3. calculate e = hash(r || pk || message)
+        let e = self.hash(r, pk, message);
+        // 4. verify the signature: s * G = r + e * pk
+        assert_eq!(s * self.G, r + e * pk);
+        true
+    }
+}
+
+// add test
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_schnorr() {
+        let schnorr = Schnorr::new(1);
+        let signature = schnorr.sign("hello");
+        assert!(schnorr.verify("hello", signature));
+    }
 }

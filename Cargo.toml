@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 tfhe = { version = "*", features = ["boolean", "shortint", "integer"] }
+sha2 = "0.10"
