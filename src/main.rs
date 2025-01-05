@@ -1,7 +1,7 @@
 use tfhe::prelude::*;
 use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint32, FheUint8};
 use sha2::{Sha256, Digest};
-
+use rand::Rng;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Basic configuration to use homomorphic integers
     let config = ConfigBuilder::default().build();
@@ -77,8 +77,7 @@ impl Schnorr {
 
     fn sign(&self, message: &str) -> (u32, u32) {
         // 1. generate a random number k
-        // let k = rand::thread_rng().gen_range(0..=255);
-        let k = 2;
+        let k = rand::thread_rng().gen_range(0..=255);
         // 2. calculate r = k * G
         let r = k * self.G;
         // 3. calculate public key pk = private_key * G
