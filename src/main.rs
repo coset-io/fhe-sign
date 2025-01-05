@@ -1,5 +1,5 @@
 use tfhe::prelude::*;
-use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint32, FheUint8};
+use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint32, FheUint8, ClientKey};
 use sha2::{Sha256, Digest};
 use rand::Rng;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -54,14 +54,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 struct Schnorr {
     private_key: u32,
     public_key: u32,
-    G: u32,
+    g: u32,
 }
 
 impl Schnorr {
     fn new(private_key: u32) -> Self {
-        let G: u32 = 2; // Define G
-        let public_key = private_key * G;
-        Self { private_key, public_key, G }
+        let g: u32 = 2; // Define G
+        let public_key = private_key * g;
+        Self { private_key, public_key, g }
     }
 
     fn hash(&self, r: u32, pk: u32, message: &str) -> u32 {
@@ -79,9 +79,9 @@ impl Schnorr {
         // 1. generate a random number k
         let k = rand::thread_rng().gen_range(0..=255);
         // 2. calculate r = k * G
-        let r = k * self.G;
+        let r = k * self.g;
         // 3. calculate public key pk = private_key * G
-        let pk = self.private_key * self.G;
+        let pk = self.private_key * self.g;
         // 4. calculate e = hash(r || pk || message)
         let e = self.hash(r, pk, message);
         println!("e: {}", e);
@@ -99,7 +99,7 @@ impl Schnorr {
         // 3. calculate e = hash(r || pk || message)
         let e = self.hash(r, pk, message);
         // 4. verify the signature: s * G = r + e * pk
-        assert_eq!(s * self.G, r + e * pk);
+        assert_eq!(s * self.g, r + e * pk);
         true
     }
 }
