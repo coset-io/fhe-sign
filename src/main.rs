@@ -1,5 +1,5 @@
 use tfhe::prelude::*;
-use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint32, FheUint8, ClientKey};
+use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint32, FheUint8, ClientKey, FheBool};
 use sha2::{Sha256, Digest};
 use rand::Rng;
 use std::time::Instant;
@@ -109,6 +109,78 @@ impl Schnorr {
     }
 }
 
+struct FheSchnorr {
+    private_key: FheUint32,
+    public_key: FheUint32,
+    g: FheUint32,
+    client_key: ClientKey,
+}
+
+// implement fhe schnorr protocol, all operations use fhe
+impl FheSchnorr {
+    fn new(private_key_orig: u32, client_key: &ClientKey) -> Result<Self, Box<dyn std::error::Error>> {
+        let g_orig: u32 = 2; // Define G
+        let public_key_orig = private_key_orig * g_orig;
+        let private_key = FheUint32::try_encrypt(private_key_orig, client_key)?;
+        let public_key = FheUint32::try_encrypt(public_key_orig, client_key)?;
+        let g = FheUint32::try_encrypt(g_orig, client_key)?;
+        Ok(Self { private_key, public_key, g, client_key: client_key.clone() })
+    }
+
+    fn hash(&self, message: &str) -> u32 {
+        let mut hasher_input = Vec::new();
+        hasher_input.extend(message.as_bytes());
+        let mut hasher = Sha256::new();
+        hasher.update(&hasher_input);
+        let hash_result = hasher.finalize();
+        u32::from_be_bytes(hash_result[..4].try_into().expect("Hash output too short")) & 0xFFFF
+    }
+
+    // TODO: implement hash function
+    fn hash_encrypted(&self, r: FheUint32, pk: FheUint32, message: FheUint32) -> FheUint32 {
+        // let mut hasher_input = Vec::new();
+        // Assuming FheUint32 has a method to_bytes() that returns a byte array
+        // hasher_input.extend(&r.to_bytes());
+        // hasher_input.extend(&pk.to_bytes());
+        // hasher_input.extend(message.as_bytes());
+        // let mut hasher = Sha256::new();
+        // hasher.update(&hasher_input);
+        // let hash_result = hasher.finalize();
+        // FheUint32::from_be_bytes(hash_result[..4].try_into().expect("Hash output too short")) & 0xFFFF
+        // workaround: just concatenate all encrypted values
+        r + pk + message
+    }
+
+    fn sign(&self, message: &str) -> Result<(FheUint32, FheUint32), Box<dyn std::error::Error>> {
+        // 1. generate a random number k
+        let k = rand::thread_rng().gen_range(0..=255);
+        // 2. calculate r = k * G
+        let r = k * self.g.clone();
+        // 3. calculate public key pk = private_key * G
+        let pk = self.private_key.clone() * self.g.clone();
+        // 4. calculate e = hash(r || pk || message)
+        let message_hash = self.hash(message);
+        let message_hash_encrypted = FheUint32::try_encrypt(message_hash, &self.client_key)?;
+        // does all these values need to be encrypted?
+        let e = self.hash_encrypted(r.clone(), pk, message_hash_encrypted);
+        // 5. calculate s = k + e * private_key
+        let s = k + e * self.private_key.clone();
+        // 6. return signature (r, s)
+        Ok((r, s))
+    }
+
+    fn verify(&self, message: &str, signature: (FheUint32, FheUint32)) -> Result<FheBool, Box<dyn std::error::Error>> {
+        let (r, s) = signature;
+        let pk = self.public_key.clone();
+        let message_hash = self.hash(message);
+        let message_hash_encrypted = FheUint32::try_encrypt(message_hash, &self.client_key)?;
+        let e = self.hash_encrypted(r.clone(), pk.clone(), message_hash_encrypted.clone());
+        let s_g = s.clone() * self.g.clone();
+        let r_e_pk = r.clone() + e * pk.clone();
+        Ok(s_g.eq(&r_e_pk))
+    }
+}
+
 // add test
 #[cfg(test)]
 mod tests {
@@ -120,4 +192,27 @@ mod tests {
         let signature = schnorr.sign("hello");
         assert!(schnorr.verify("hello", signature));
     }
+
+    #[test]
+    fn test_fhe_schnorr() {
+        println!("start");
+        let config = ConfigBuilder::default().build();
+        println!("config");
+        let (client_key, server_keys) = generate_keys(config);
+        println!("generate_keys");
+        set_server_key(server_keys);
+        println!("server keys");
+        let fhe_schnorr = FheSchnorr::new(1, &client_key).unwrap();
+        println!("fhe schnorr");
+        let signature = fhe_schnorr.sign("hello").unwrap();
+        println!("signature");
+        let result = fhe_schnorr.verify("hello", signature).unwrap();
+        println!("result");
+        let decrypted_result = result.decrypt(&client_key);
+        println!("decrypted result");
+        assert!(decrypted_result);
+        println!("end");
+    }
 }
+
+
