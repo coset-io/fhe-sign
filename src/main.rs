@@ -2,6 +2,7 @@ use tfhe::prelude::*;
 use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint32, FheUint8, ClientKey};
 use sha2::{Sha256, Digest};
 use rand::Rng;
+use std::time::Instant;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Basic configuration to use homomorphic integers
     let config = ConfigBuilder::default().build();
@@ -22,7 +23,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     set_server_key(server_keys);
 
     // Perform homomorphic operations
+    let start = Instant::now();
     let encrypted_res_mul = &encrypted_a * &encrypted_b; // 1344 * 5
+    let end = Instant::now();
+    println!("Time taken: {:?}", end.duration_since(start));
+    // Time taken for mul only: 722.108276373s
     let shifted_a = &encrypted_res_mul >> &encrypted_b; // 6720 >> 5
     let casted_a: FheUint8 = shifted_a.cast_into(); // Cast to u8
     let encrypted_res_min = &casted_a.min(&encrypted_c); // min(210, 7)
