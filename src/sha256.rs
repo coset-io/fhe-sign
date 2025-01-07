@@ -1,4 +1,4 @@
-use rayon as __rayon_reexport;
+use super::rayon_wrapper::*;
 use rayon::prelude::*;
 use std::io::{stdin, Read};
 use std::mem::MaybeUninit;
@@ -7,39 +7,43 @@ use tfhe::prelude::*;
 use tfhe::shortint::parameters::*;
 use tfhe::{set_server_key, ClientKey, CompressedServerKey, ConfigBuilder, Device, FheUint32};
 
-// might improve error message on type error
-#[doc(hidden)]
-pub fn __requires_sendable_closure<R, F: FnOnce() -> R + Send>(x: F) -> F {
-    x
-}
-#[doc(hidden)]
-macro_rules! __join_implementation {
-    ($len:expr; $($f:ident $r:ident $a:expr),*; $b:expr, $($c:expr,)*) => {
-        $crate::__join_implementation!{$len + 1; $($f $r $a,)* f r $b; $($c,)* }
-    };
-    ($len:expr; $($f:ident $r:ident $a:expr),* ;) => {
-        match ($(Some($crate::__requires_sendable_closure($a)),)*) {
-            ($(mut $f,)*) => {
-                $(let mut $r = None;)*
-                let array: [&mut (dyn FnMut() + Send); $len] = [
-                    $(&mut || $r = Some((&mut $f).take().unwrap()())),*
-                ];
-                $crate::__rayon_reexport::iter::ParallelIterator::for_each(
-                    $crate::__rayon_reexport::iter::IntoParallelIterator::into_par_iter(array),
-                    |f| f(),
-                );
-                ($($r.unwrap(),)*)
+#[macro_use]
+mod macros {
+    #[doc(hidden)]
+    #[macro_export]
+    pub fn __requires_sendable_closure<R, F: FnOnce() -> R + Send>(x: F) -> F {
+        x
+    }
+
+    #[doc(hidden)]
+    #[macro_export]
+    macro_rules! __join_implementation {
+        ($len:expr; $($f:ident $r:ident $a:expr),*; $b:expr, $($c:expr,)*) => {
+            $crate::__join_implementation!{$len + 1; $($f $r $a,)* f r $b; $($c,)* }
+        };
+        ($len:expr; $($f:ident $r:ident $a:expr),* ;) => {
+            match ($(Some($crate::__requires_sendable_closure($a)),)*) {
+                ($(mut $f,)*) => {
+                    $(let mut $r = None;)*
+                    let array: [&mut (dyn FnMut() + Send); $len] = [
+                        $(&mut || $r = Some((&mut $f).take().unwrap()())),*
+                    ];
+                    $crate::__rayon_reexport::iter::ParallelIterator::for_each(
+                        $crate::__rayon_reexport::iter::IntoParallelIterator::into_par_iter(array),
+                        |f| f(),
+                    );
+                    ($($r.unwrap(),)*)
+                }
             }
-        }
-    };
-}
+        };
+    }
 
-pub(crate) use __join_implementation;
-
-macro_rules! join {
-    ($($($a:expr),+$(,)?)?) => {
-        $crate::__join_implementation!{0;;$($($a,)+)?}
-    };
+    #[macro_export]
+    macro_rules! join {
+        ($($($a:expr),+$(,)?)?) => {
+            $crate::__join_implementation!{0;;$($($a,)+)?}
+        };
+    }
 }
 
 // In-House implementation of array_chunk
@@ -115,134 +119,31 @@ where
     }
 }
 
-#[derive(Debug)]
-struct Args {
-    device: Device,
-    parallel: bool,
-    trivial: bool,
-    multibit: Option<usize>,
-}
+pub fn sha256_fhe_main() -> Result<(), std::io::Error> {
 
-impl Default for Args {
-    fn default() -> Self {
-        Self {
-            device: Device::Cpu,
-            parallel: false,
-            trivial: false,
-            multibit: None,
-        }
-    }
-}
-
-impl Args {
-    fn from_arg_list(mut program_args: std::env::Args) -> Self {
-        let mut args = Args::default();
-        let mut had_invalid = false;
-
-        program_args.next().unwrap(); // This is argv[0], the program name/path
-        while let Some(arg) = program_args.next() {
-            if arg == "--parallel" {
-                args.parallel = true;
-            } else if arg == "--trivial" {
-                args.trivial = true;
-            } else if arg == "--device" {
-                let Some(value) = program_args.next() else {
-                    panic!("Expected value after --device");
-                };
-
-                match value.to_lowercase().as_str() {
-                    "cpu" => args.device = Device::Cpu,
-                    #[cfg(feature = "gpu")]
-                    "gpu" | "cuda" => args.device = Device::CudaGpu,
-                    #[cfg(not(feature = "gpu"))]
-                    "gpu" | "cuda" => {
-                        panic!("Needs to be compiled with gpu feature to support gpu")
-                    }
-                    _ => panic!("Unsupported device {value}"),
-                }
-            } else if arg == "--multibit" {
-                let Some(value) = program_args.next() else {
-                    panic!("Expected value after --multibit");
-                };
-
-                args.multibit = Some(value.parse().unwrap());
-            } else {
-                println!("Unknown argument '{arg}'");
-                had_invalid = true;
-            }
-        }
-
-        if had_invalid {
-            panic!("Invalid argument found, aborting");
-        }
-        args
-    }
-}
-
-fn main() -> Result<(), std::io::Error> {
-    let args = Args::from_arg_list(std::env::args());
-    println!("Args: {args:?}");
-
-    println!("key gen start");
-    let config = match args.multibit {
-        None => ConfigBuilder::default(),
-        Some(2) => ConfigBuilder::with_custom_parameters(
-            PARAM_MULTI_BIT_GROUP_2_MESSAGE_2_CARRY_2_KS_PBS_GAUSSIAN_2M64,
-        ),
-        Some(3) => ConfigBuilder::with_custom_parameters(
-            PARAM_MULTI_BIT_GROUP_3_MESSAGE_2_CARRY_2_KS_PBS_GAUSSIAN_2M64,
-        ),
-        Some(v) => {
-            panic!("Invalid multibit setting {v}");
-        }
-    }
-    .build();
+    let config = ConfigBuilder::default().build();
 
     let client_key = ClientKey::generate(config);
     let csks = CompressedServerKey::new(&client_key);
 
-    match (args.device, args.parallel) {
-        (Device::Cpu, false) => {
-            let server_key = csks.decompress();
-            set_server_key(server_key);
-        }
-        (Device::Cpu, true) => {
-            let server_key = csks.decompress();
-            rayon::broadcast(|_| {
-                set_server_key(server_key.clone());
-            });
-            set_server_key(server_key);
-        }
-        #[cfg(feature = "gpu")]
-        (Device::CudaGpu, false) => {
-            let server_key = csks.decompress_to_gpu();
-            set_server_key(server_key);
-        }
-        #[cfg(feature = "gpu")]
-        (Device::CudaGpu, true) => {
-            let server_key = csks.decompress_to_gpu();
-            rayon::broadcast(|_| {
-                set_server_key(server_key.clone());
-            });
-            set_server_key(server_key);
-        }
-    }
+    let server_key = csks.decompress();
+    set_server_key(server_key);
+
     println!("key gen end");
 
     let mut buf = vec![];
     stdin().read_to_end(&mut buf)?;
     println!("input: {}", String::from_utf8_lossy(&buf));
-    let client_key = if args.trivial { None } else { Some(client_key) };
 
+    let client_key = Some(client_key);
     let encrypted_input = encrypt_data(buf, client_key.as_ref());
 
-    let encrypted_hash = if args.parallel {
-        sha256_fhe_parallel(encrypted_input)
-    } else {
-        sha256_fhe(encrypted_input)
-    };
+    let encrypted_hash = sha256_fhe(encrypted_input);
     let decrypted_hash = decrypt_hash(encrypted_hash, client_key.as_ref());
-    println!("{}", hex::encode(decrypted_hash));
+    // println!("{}", hex::encode(decrypted_hash));
+    let hex_string = decrypted_hash.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+    println!("{}", hex_string);
+
     Ok(())
 }
 
@@ -285,7 +186,7 @@ fn rotr<const N: usize>(input: &FheUint32, amounts: [u32; N]) -> [FheUint32; N] 
     result
 }
 
-fn encrypt_data<T: AsRef<[u8]>>(input: T, client_key: Option<&ClientKey>) -> Vec<FheUint32> {
+pub fn encrypt_data<T: AsRef<[u8]>>(input: T, client_key: Option<&ClientKey>) -> Vec<FheUint32> {
     let len = input.as_ref().len();
     let remainder = (len + 9) % 64;
 
@@ -308,7 +209,7 @@ fn encrypt_data<T: AsRef<[u8]>>(input: T, client_key: Option<&ClientKey>) -> Vec
         .collect()
 }
 
-fn decrypt_hash(encrypted_hash: [FheUint32; 8], client_key: Option<&ClientKey>) -> [u8; 32] {
+pub fn decrypt_hash(encrypted_hash: [FheUint32; 8], client_key: Option<&ClientKey>) -> [u8; 32] {
     let mut decrypted_hash = [0u8; 32];
     encrypted_hash
         .iter()
@@ -325,7 +226,7 @@ fn decrypt_hash(encrypted_hash: [FheUint32; 8], client_key: Option<&ClientKey>) 
     decrypted_hash
 }
 
-fn sha256_fhe(input: Vec<FheUint32>) -> [FheUint32; 8] {
+pub fn sha256_fhe(input: Vec<FheUint32>) -> [FheUint32; 8] {
     println!("len: {}", input.len());
     let k = K.map(|x: u32| FheUint32::encrypt_trivial(x));
     let mut hash = INIT.map(|x: u32| FheUint32::encrypt_trivial(x));
@@ -394,86 +295,6 @@ fn sha256_fhe(input: Vec<FheUint32>) -> [FheUint32; 8] {
         hash[5] += f;
         hash[6] += g;
         hash[7] += h;
-        println!("Processed in: {:?}", bfr.elapsed());
-    }
-    println!("Total time: {:?}", total_timer.elapsed());
-    hash
-}
-
-fn sha256_fhe_parallel(input: Vec<FheUint32>) -> [FheUint32; 8] {
-    let k = K.map(|x: u32| FheUint32::encrypt_trivial(x));
-    let mut hash = INIT.map(|x: u32| FheUint32::encrypt_trivial(x));
-    let all_ones = FheUint32::encrypt_trivial(0xffffffff_u32);
-    let mut w: [_; 64] = array::from_fn(|_| FheUint32::encrypt_trivial(0_u32));
-
-    let len = input.len();
-    let total_timer = std::time::Instant::now();
-    println!("Starting main loop");
-    for (chunk_index, mut chunk) in ArrayChunks::<_, 16>::new(input.into_iter()).enumerate() {
-        println!("Start chunk: {} / {}", chunk_index + 1, len / 16);
-        let bfr = std::time::Instant::now();
-        w[0..16].swap_with_slice(&mut chunk);
-
-        for i in 16..64 {
-            let (s0_a, s0_b, s1_a, s1_b) = join!(
-                || par_rotr(&w[i - 15], [7u32, 18]),
-                || (&w[i - 15] >> 3u32),
-                || par_rotr(&w[i - 2], [17u32, 19]),
-                || (&w[i - 2] >> 10u32),
-            );
-
-            let (s0, s1) =
-                rayon::join(|| &s0_a[0] ^ &s0_a[1] ^ s0_b, || &s1_a[0] ^ &s1_a[1] ^ s1_b);
-
-            w[i] = [&w[i - 16], &s0, &w[i - 7], &s1].into_iter().sum();
-        }
-
-        let mut a = hash[0].clone();
-        let mut b = hash[1].clone();
-        let mut c = hash[2].clone();
-        let mut d = hash[3].clone();
-        let mut e = hash[4].clone();
-        let mut f = hash[5].clone();
-        let mut g = hash[6].clone();
-        let mut h = hash[7].clone();
-
-        for i in 0..64 {
-            // Please clippy
-            let e_rotations = || {
-                let rotations = par_rotr(&e, [6u32, 11, 25]);
-                &rotations[0] ^ &rotations[1] ^ &rotations[2]
-            };
-            let a_rotations = || {
-                let rotations = par_rotr(&a, [2u32, 13, 22]);
-                &rotations[0] ^ &rotations[1] ^ &rotations[2]
-            };
-            let (s1, ch, s0, maj) = join!(
-                e_rotations,
-                || (&e & &f) ^ ((&e ^ &all_ones) & &g),
-                a_rotations,
-                || (&a & &b) ^ (&a & &c) ^ (&b & &c)
-            );
-
-            let (t1, t2) = rayon::join(
-                || [&h, &s1, &ch, &k[i], &w[i]].into_iter().sum(),
-                || s0 + maj,
-            );
-            let (d_plus_t1, t1_plus_t2) = rayon::join(|| d + &t1, || &t1 + t2);
-
-            h = g;
-            g = f;
-            f = e;
-            e = d_plus_t1;
-            d = c;
-            c = b;
-            b = a;
-            a = t1_plus_t2;
-        }
-
-        let hash2 = [a, b, c, d, e, f, g, h];
-        hash.par_iter_mut()
-            .zip(hash2.par_iter())
-            .for_each(|(dest, src)| *dest += src);
         println!("Processed in: {:?}", bfr.elapsed());
     }
     println!("Total time: {:?}", total_timer.elapsed());

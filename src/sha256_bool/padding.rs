@@ -53,7 +53,7 @@ fn pad_sha256_data(data: &[u8]) -> Vec<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sha256_function::bools_to_hex;
+    use crate::sha256_bool::bools_to_hex;
 
     #[test]
     fn test_pad_sha256_input() {
