@@ -9,3 +9,4 @@ edition = "2021"
 tfhe = { version = "*", features = ["boolean", "shortint", "integer"] }
 sha2 = "0.10"
 rand = "0.8"
+rayon = "1.10.0"
