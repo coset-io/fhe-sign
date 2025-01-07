@@ -5,6 +5,7 @@ use tfhe::prelude::*;
 use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint32, FheUint8, ClientKey, FheBool};
 
 mod sha256_bool;
+mod sha256;
 
 use crate::sha256_bool::{pad_sha256_input, bools_to_hex, sha256_fhe};
 use std::io;
@@ -130,9 +131,12 @@ impl Schnorr {
 }
 
 struct FheSchnorr {
-    private_key: FheUint32,
-    public_key: FheUint32,
-    g: FheUint32,
+    private_key_orig: u32,
+    public_key_orig: u32,
+    g_orig: u32,
+    private_key_encrypted: FheUint32,
+    public_key_encrypted: FheUint32,
+    g_encrypted: FheUint32,
     client_key: ClientKey,
 }
 
@@ -144,7 +148,15 @@ impl FheSchnorr {
         let private_key = FheUint32::try_encrypt(private_key_orig, client_key)?;
         let public_key = FheUint32::try_encrypt(public_key_orig, client_key)?;
         let g = FheUint32::try_encrypt(g_orig, client_key)?;
-        Ok(Self { private_key, public_key, g, client_key: client_key.clone() })
+        Ok(Self {
+            private_key_orig,
+            public_key_orig,
+            g_orig,
+            private_key_encrypted: private_key,
+            public_key_encrypted: public_key,
+            g_encrypted: g,
+            client_key: client_key.clone(),
+        })
     }
 
     fn hash(&self, message: &str) -> u32 {
@@ -171,20 +183,69 @@ impl FheSchnorr {
         r + pk + message
     }
 
+    fn sha256_fhe(input_str: String) -> Result<Vec<Ciphertext>, Box<dyn std::error::Error>> {
+        // let matches = Command::new("Homomorphic sha256")
+        //     .arg(
+        //         Arg::new("ladner_fischer")
+        //             .long("ladner-fischer")
+        //             .help("Use the Ladner Fischer parallel prefix algorithm for additions")
+        //             .action(ArgAction::SetTrue),
+        //     )
+        //     .get_matches();
+
+        // If set using the command line flag "--ladner-fischer" this algorithm will be used in
+        // additions
+        let ladner_fischer: bool = false;
+
+        // INTRODUCE INPUT FROM STDIN
+
+        // let mut input = String::new();
+        println!("Write input to hash:");
+
+        // io::stdin()
+        //     .read_line(&mut input)
+        //     .expect("Failed to read line");
+        let input = input_str.trim_end_matches('\n').to_string();
+
+        println!("You entered: \"{}\"", input);
+
+        // CLIENT PADS DATA AND ENCRYPTS IT
+
+        let (ck, sk) = gen_keys();
+
+        let padded_input = pad_sha256_input(&input);
+        let encrypted_input = encrypt_bools(&padded_input, &ck);
+
+        // SERVER COMPUTES OVER THE ENCRYPTED PADDED DATA
+
+        println!("Computing the hash");
+        let encrypted_output = sha256_fhe(encrypted_input, ladner_fischer, &sk);
+
+        // CLIENT DECRYPTS THE OUTPUT
+
+        let output = decrypt_bools(&encrypted_output, &ck);
+        let outhex = bools_to_hex(output);
+
+        println!("outhex: {}", outhex);
+
+        Ok(encrypted_output)
+    }
+
+
     fn sign(&self, message: &str) -> Result<(FheUint32, FheUint32), Box<dyn std::error::Error>> {
         // 1. generate a random number k
         let k = rand::thread_rng().gen_range(0..=255);
         // 2. calculate r = k * G
-        let r = k * self.g.clone();
+        let r = k * self.g_orig;
         // 3. calculate public key pk = private_key * G
-        let pk = self.private_key.clone() * self.g.clone();
+        let pk = self.private_key_orig * self.g_orig;
         // 4. calculate e = hash(r || pk || message)
         let message_hash = self.hash(message);
         let message_hash_encrypted = FheUint32::try_encrypt(message_hash, &self.client_key)?;
         // does all these values need to be encrypted?
         let e = self.hash_encrypted(r.clone(), pk, message_hash_encrypted);
         // 5. calculate s = k + e * private_key
-        let s = k + e * self.private_key.clone();
+        let s = k + e * self.private_key_orig;
         // 6. return signature (r, s)
         Ok((r, s))
     }
