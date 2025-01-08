@@ -50,11 +50,9 @@ fn hash_encrypted(encrypted_input: Vec<tfhe::FheUint<tfhe::FheUint32Id>>, client
 }
 
 struct FheSchnorr {
-    private_key: u32,
+    private_key_encrypted: FheUint64,
     public_key: u32,
     g: u32,
-    private_key_encrypted: FheUint64,
-    public_key_encrypted: FheUint64,
 }
 
 // implement fhe schnorr protocol, all operations use fhe
@@ -63,13 +61,10 @@ impl FheSchnorr {
         let g: u32 = 2; // Define G
         let public_key = private_key * g;
         let private_key_encrypted = FheUint64::try_encrypt(private_key, client_key)?;
-        let public_key_encrypted = FheUint64::try_encrypt(public_key, client_key)?;
         Ok(Self {
-            private_key,
+            private_key_encrypted,
             public_key,
             g,
-            private_key_encrypted,
-            public_key_encrypted,
         })
     }
 
@@ -81,7 +76,8 @@ impl FheSchnorr {
         // 2. calculate r = k * G
         let r = k * self.g;
         // 3. calculate public key pk = private_key * G
-        let pk = self.private_key * self.g;
+        // let pk = self.private_key * self.g;
+        let pk = self.public_key;
         // 4. calculate e = hash(r || pk || message)
         // let message_hash = hash(message);
         let e = hash(r, pk, message);
