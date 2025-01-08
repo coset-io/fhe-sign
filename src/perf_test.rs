@@ -98,6 +98,6 @@ mod tests {
 
     #[test]
     fn test_perf_test() {
-        perf_test();
+        main();
     }
 }
