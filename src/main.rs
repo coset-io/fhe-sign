@@ -317,6 +317,7 @@ mod tests {
 
     #[test]
     fn test_fhe_schnorr() {
+        let total_timer = Instant::now();
         let private_key = 2025010716;
         let message = "Hello World";
         println!("start");
@@ -347,6 +348,7 @@ mod tests {
         assert!(decrypted_result);
 
         println!("end");
+        println!("Total time: {:?}", total_timer.elapsed());
     }
 }
 
