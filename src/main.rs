@@ -18,6 +18,7 @@ use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint32, FheUint8, Cl
 
 mod sha256_bool;
 mod sha256;
+mod perf_test;
 
 use tfhe::boolean::prelude::{ClientKey as ClientKeyBool, Ciphertext, gen_keys};
 use crate::sha256_bool::{pad_sha256_input, bools_to_hex, sha256_fhe as sha256_fhe_bool};

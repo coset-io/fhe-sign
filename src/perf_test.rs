@@ -87,13 +87,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Time taken for and: 8.523563505s
     // Time taken for div: 4211.997434488s
     // Time taken for decrypt: 365.956µs
-    // Decrypted result: 1
     // Time taken for decrypt div: 912.233µs
-    // Clear division result: 268
-    // Decrypted division result: 268
     // Time taken for float div: 78ns
-    // Float division result: 268.8
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
 
+    #[test]
+    fn test_perf_test() {
+        perf_test();
+    }
+}
