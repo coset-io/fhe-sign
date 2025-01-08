@@ -328,13 +328,24 @@ mod tests {
         println!("server keys");
         let fhe_schnorr = FheSchnorr::new(private_key, &client_key).unwrap();
         println!("fhe schnorr");
+
+        let start = Instant::now();
         let signature = fhe_schnorr.sign(message).unwrap();
-        println!("signature");
+        let end = Instant::now();
+        println!("time taken for sign: {:?}", end.duration_since(start));
+
+        let start = Instant::now();
         let result = fhe_schnorr.verify(message, signature).unwrap();
-        println!("result");
+        let end = Instant::now();
+        println!("time taken for verify: {:?}", end.duration_since(start));
+
+        let start = Instant::now();
         let decrypted_result = result.decrypt(&client_key);
-        println!("decrypted result");
+        let end = Instant::now();
+        println!("time taken for decrypt: {:?}", end.duration_since(start));
+
         assert!(decrypted_result);
+
         println!("end");
     }
 }
