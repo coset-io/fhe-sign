@@ -168,44 +168,6 @@ impl FheSchnorr {
         Ok(sum)
     }
 
-    // TODO: implement hash function
-    fn hash_encrypted_bool(&self, input_str: String) -> Result<Vec<Ciphertext>, Box<dyn std::error::Error>> {
-        let ladner_fischer: bool = false;
-
-        // INTRODUCE INPUT FROM STDIN
-
-        // let mut input = String::new();
-        println!("Write input to hash:");
-
-        // io::stdin()
-        //     .read_line(&mut input)
-        //     .expect("Failed to read line");
-        let input = input_str.trim_end_matches('\n').to_string();
-
-        println!("You entered: \"{}\"", input);
-
-        // CLIENT PADS DATA AND ENCRYPTS IT
-
-        let (ck, sk) = gen_keys();
-
-        let padded_input = pad_sha256_input(&input);
-        let encrypted_input = encrypt_bools(&padded_input, &ck);
-
-        // SERVER COMPUTES OVER THE ENCRYPTED PADDED DATA
-
-        println!("Computing the hash");
-        let encrypted_output = sha256_fhe_bool(encrypted_input, ladner_fischer, &sk);
-
-        // CLIENT DECRYPTS THE OUTPUT
-
-        let output = decrypt_bools(&encrypted_output, &ck);
-        let outhex = bools_to_hex(output);
-
-        println!("outhex: {}", outhex);
-
-        Ok(encrypted_output)
-    }
-
     fn sign(&self, message: &str) -> Result<(u32, FheUint32), Box<dyn std::error::Error>> {
         // 1. generate a random number k
         let k = rand::thread_rng().gen_range(0..=255);
