@@ -79,16 +79,8 @@ impl FheSchnorr {
         // let pk = self.private_key * self.g;
         let pk = self.public_key;
         // 4. calculate e = hash(r || pk || message)
-        // let message_hash = hash(message);
         let e = hash(r, pk, message);
         let e_encrypted = FheUint64::try_encrypt(e, client_key)?;
-        // let message_hash_encrypted = FheUint32::try_encrypt(message_hash, &self.client_key)?;
-
-        // let input = r.to_string() + &pk.to_string() + &message_hash.to_string();
-        // let buf = input.as_bytes().to_vec();
-        // let encrypted_input = encrypt_data(buf, Some(client_key));
-        // let e_encrypted = hash_encrypted(encrypted_input, Some(client_key)).unwrap();
-        println!("e_encrypted finished");
         // 5. calculate s = k + e * private_key
         let s_encrypted = k_encrypted + e_encrypted * self.private_key_encrypted.clone();
         println!("s_encrypted finished");
@@ -98,24 +90,7 @@ impl FheSchnorr {
         Ok((r, s))
     }
 
-    // verify: s * g ?= r + e * pk
-    // s_encrypted * g ?= r + e_encrypted * pk_encrypted
-    // equals to: s_encrypted * g ?= k * g + e_encrypted * private_key_encrypted * g
-    // we only need to check if s_encrypted == k + private_key_encrypted
-    // fn verify(&self, message: &str, signature: (u32, u32), client_key: &ClientKey) -> Result<FheBool, Box<dyn std::error::Error>> {
-    //     let (r, s) = signature;
-    //     let pk = self.public_key_encrypted.clone();
-
-    //     let message_hash = hash(message);
-    //     let input = r.to_string() + &self.public_key.to_string() + &message_hash.to_string();
-    //     let buf = input.as_bytes().to_vec();
-    //     let encrypted_input = encrypt_data(buf, Some(client_key));
-    //     let e_encrypted = hash_encrypted(encrypted_input, Some(client_key)).unwrap();
-
-    //     let s_g = s * self.g;
-    //     let r_e_pk = r + e_encrypted * self.public_key;
-    //     Ok(s_g == r_e_pk)
-    // }
+    // since we already got the decrypted signature, we can directly verify it
     pub fn verify(&self, message: &str, signature: (u32, u64)) -> bool {
         // 1. get the signature
         let (r, s) = signature;
