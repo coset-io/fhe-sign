@@ -72,7 +72,10 @@ impl FheSchnorr {
         // 1. generate a random number k
         // let k = rand::thread_rng().gen_range(0..=255);
         let k = 100;
+        let start = Instant::now();
         let k_encrypted = FheUint64::try_encrypt(k, client_key)?;
+        let end = Instant::now();
+        println!("time taken for encrypt: {:?}", end.duration_since(start));
         // 2. calculate r = k * G
         let r = k * self.g;
         // 3. calculate public key pk = private_key * G
@@ -80,12 +83,17 @@ impl FheSchnorr {
         let pk = self.public_key;
         // 4. calculate e = hash(r || pk || message)
         let e = hash(r, pk, message);
+        let start = Instant::now();
         let e_encrypted = FheUint64::try_encrypt(e, client_key)?;
+        let end = Instant::now();
+        println!("time taken for encrypt: {:?}", end.duration_since(start));
         // 5. calculate s = k + e * private_key
         let s_encrypted = k_encrypted + e_encrypted * self.private_key_encrypted.clone();
         println!("s_encrypted finished");
+        let start = Instant::now();
         let s = s_encrypted.decrypt(client_key);
-        println!("s finished");
+        let end = Instant::now();
+        println!("time taken for decrypt: {:?}", end.duration_since(start));
         // 6. return signature (r, s)
         Ok((r, s))
     }
