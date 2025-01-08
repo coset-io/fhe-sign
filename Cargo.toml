@@ -10,3 +10,5 @@ tfhe = { version = "*", features = ["boolean", "shortint", "integer", "seeder_un
 sha2 = "0.10"
 rand = "0.8"
 rayon = "1.10.0"
+k256 = "0.13.4"
+rand_core = "0.6.4"

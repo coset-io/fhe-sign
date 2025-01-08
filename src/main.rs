@@ -4,6 +4,7 @@ mod sha256;
 mod perf_test;
 mod schnorr;
 mod sha256_fhe_test;
+mod schnorr_btc;
 
 pub mod rayon_wrapper {
     pub use rayon::iter::{IntoParallelIterator, ParallelIterator};
