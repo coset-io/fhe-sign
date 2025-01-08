@@ -29,7 +29,8 @@ impl Schnorr {
 
     pub fn sign(&self, message: &str) -> (u32, u64) {
         // 1. generate a random number k
-        let k = rand::thread_rng().gen_range(0..=255);
+        // let k = rand::thread_rng().gen_range(0..=255);
+        let k = 100;
         // 2. calculate r = k * G
         let r = k * self.g;
         // 3. calculate public key pk = private_key * G

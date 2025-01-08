@@ -21,7 +21,7 @@ use tfhe::prelude::*;
 use sha2::{Sha256, Digest};
 use rand::Rng;
 use std::time::Instant;
-use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint32, ClientKey, FheBool, CompressedServerKey};
+use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint32, FheUint64, ClientKey, FheBool, CompressedServerKey};
 
 use tfhe::boolean::prelude::{ClientKey as ClientKeyBool, Ciphertext, gen_keys};
 use crate::sha256_bool::{pad_sha256_input, bools_to_hex, sha256_fhe as sha256_fhe_bool};
@@ -53,8 +53,8 @@ struct FheSchnorr {
     private_key: u32,
     public_key: u32,
     g: u32,
-    private_key_encrypted: FheUint32,
-    public_key_encrypted: FheUint32,
+    private_key_encrypted: FheUint64,
+    public_key_encrypted: FheUint64,
 }
 
 // implement fhe schnorr protocol, all operations use fhe
@@ -62,8 +62,8 @@ impl FheSchnorr {
     fn new(private_key: u32, client_key: &ClientKey) -> Result<Self, Box<dyn std::error::Error>> {
         let g: u32 = 2; // Define G
         let public_key = private_key * g;
-        let private_key_encrypted = FheUint32::try_encrypt(private_key, client_key)?;
-        let public_key_encrypted = FheUint32::try_encrypt(public_key, client_key)?;
+        let private_key_encrypted = FheUint64::try_encrypt(private_key, client_key)?;
+        let public_key_encrypted = FheUint64::try_encrypt(public_key, client_key)?;
         Ok(Self {
             private_key,
             public_key,
@@ -75,8 +75,9 @@ impl FheSchnorr {
 
     fn sign(&self, message: &str, client_key: &ClientKey) -> Result<(u32, u64), Box<dyn std::error::Error>> {
         // 1. generate a random number k
-        let k = rand::thread_rng().gen_range(0..=255);
-        let k_encrypted = FheUint32::try_encrypt(k, client_key)?;
+        // let k = rand::thread_rng().gen_range(0..=255);
+        let k = 100;
+        let k_encrypted = FheUint64::try_encrypt(k, client_key)?;
         // 2. calculate r = k * G
         let r = k * self.g;
         // 3. calculate public key pk = private_key * G
@@ -84,7 +85,7 @@ impl FheSchnorr {
         // 4. calculate e = hash(r || pk || message)
         // let message_hash = hash(message);
         let e = hash(r, pk, message);
-        let e_encrypted = FheUint32::try_encrypt(e, client_key)?;
+        let e_encrypted = FheUint64::try_encrypt(e, client_key)?;
         // let message_hash_encrypted = FheUint32::try_encrypt(message_hash, &self.client_key)?;
 
         // let input = r.to_string() + &pk.to_string() + &message_hash.to_string();
