@@ -1,3 +1,9 @@
+
+mod sha256_bool;
+mod sha256;
+mod perf_test;
+mod schnorr;
+
 pub mod rayon_wrapper {
     pub use rayon::iter::{IntoParallelIterator, ParallelIterator};
 }
@@ -15,10 +21,6 @@ use sha2::{Sha256, Digest};
 use rand::Rng;
 use std::time::Instant;
 use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint32, FheUint8, ClientKey, FheBool, CompressedServerKey};
-
-mod sha256_bool;
-mod sha256;
-mod perf_test;
 
 use tfhe::boolean::prelude::{ClientKey as ClientKeyBool, Ciphertext, gen_keys};
 use crate::sha256_bool::{pad_sha256_input, bools_to_hex, sha256_fhe as sha256_fhe_bool};
@@ -113,58 +115,14 @@ fn main() {
     // sha256_fhe_bool_main();
 }
 
-// implement schnorr protocol
-struct Schnorr {
-    private_key: u32,
-    public_key: u32,
-    g: u32,
-}
-
-impl Schnorr {
-    fn new(private_key: u32) -> Self {
-        let g: u32 = 2; // Define G
-        let public_key = private_key * g;
-        Self { private_key, public_key, g }
-    }
-
-    fn hash(&self, r: u32, pk: u32, message: &str) -> u32 {
-        let mut hasher_input = Vec::new();
-        hasher_input.extend(&r.to_be_bytes());
-        hasher_input.extend(&pk.to_be_bytes());
-        hasher_input.extend(message.as_bytes());
-        let mut hasher = Sha256::new();
-        hasher.update(&hasher_input);
-        let hash_result = hasher.finalize();
-        u32::from_be_bytes(hash_result[..4].try_into().expect("Hash output too short")) & 0xFFFF
-    }
-
-    fn sign(&self, message: &str) -> (u32, u32) {
-        // 1. generate a random number k
-        let k = rand::thread_rng().gen_range(0..=255);
-        // 2. calculate r = k * G
-        let r = k * self.g;
-        // 3. calculate public key pk = private_key * G
-        let pk = self.private_key * self.g;
-        // 4. calculate e = hash(r || pk || message)
-        let e = self.hash(r, pk, message);
-        println!("e: {}", e);
-        // 5. calculate s = k + e * private_key
-        let s = k + e * self.private_key;
-        // 6. return signature (r, s)
-        (r, s)
-    }
-
-    fn verify(&self, message: &str, signature: (u32, u32)) -> bool {
-        // 1. get the signature
-        let (r, s) = signature;
-        // 2. get the public key
-        let pk = self.public_key;
-        // 3. calculate e = hash(r || pk || message)
-        let e = self.hash(r, pk, message);
-        // 4. verify the signature: s * G = r + e * pk
-        assert_eq!(s * self.g, r + e * pk);
-        true
-    }
+pub fn hash_message(message: &str) -> u32 {
+    let mut hasher_input = Vec::new();
+    hasher_input.extend(message.as_bytes());
+    let mut hasher = Sha256::new();
+    hasher.update(&hasher_input);
+    let hash_result = hasher.finalize();
+    // only take the first 2 bytes
+    u32::from_be_bytes(hash_result[..4].try_into().expect("Hash output too short")) & 0xFFFF
 }
 
 struct FheSchnorr {
@@ -197,15 +155,8 @@ impl FheSchnorr {
     }
 
     fn hash(&self, message: &str) -> u32 {
-        let mut hasher_input = Vec::new();
-        hasher_input.extend(message.as_bytes());
-        let mut hasher = Sha256::new();
-        hasher.update(&hasher_input);
-        let hash_result = hasher.finalize();
-        // only take the first 2 bytes
-        u32::from_be_bytes(hash_result[..4].try_into().expect("Hash output too short")) & 0xFFFF
+        hash_message(message)
     }
-
 
     fn hash_encrypted(&self, encrypted_input: Vec<tfhe::FheUint<tfhe::FheUint32Id>>, client_key: Option<&ClientKey>) -> Result<FheUint32, Box<dyn std::error::Error>> {
         let encrypted_hash = sha256_fhe(encrypted_input);
@@ -307,14 +258,6 @@ impl FheSchnorr {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_schnorr() {
-        let schnorr = Schnorr::new(1);
-        let signature = schnorr.sign("hello");
-        assert!(schnorr.verify("hello", signature));
-    }
-
     #[test]
     fn test_fhe_schnorr() {
         let total_timer = Instant::now();
