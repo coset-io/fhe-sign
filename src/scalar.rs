@@ -203,6 +203,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_new() {
+        let a = Scalar::new(65521);
+        assert_eq!(a.value, 0);
+        let b = Scalar::new(-1);
+        assert_eq!(b.value, 65520);
+        let c = Scalar::new(65522);
+        assert_eq!(c.value, 1);
+    }
+
+    #[test]
+    fn test_neg() {
+        let a = Scalar::new(1);
+        let b = -a;
+        assert_eq!(b.value, 65520);
+    }
+
+    #[test]
     fn test_addition() {
         let a = Scalar::new(2);
         let b = Scalar::new(3);
