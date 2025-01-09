@@ -7,10 +7,12 @@ use rand_core::OsRng; // requires 'getrandom' feature
 use schnorr_fun::{
     fun::{marker::Public,nonce, Scalar},
     Schnorr,
-    Message
+    Message,
+    Signature
 };
 use sha2::Sha256;
 use rand::rngs::ThreadRng;
+use hex;
 
 pub fn schnorr_btc() {
     // Signing
@@ -34,12 +36,21 @@ pub fn schnorr_fun() {
     let nonce_gen = nonce::Synthetic::<Sha256, nonce::GlobalRng<ThreadRng>>::default();
     let schnorr = Schnorr::<Sha256, _>::new(nonce_gen.clone());
     // Generate your public/private key-pair
-    let keypair = schnorr.new_keypair(Scalar::random(&mut rand::thread_rng()));
+    // todo: here we do not use random number for testing
+    let keypair = schnorr.new_keypair(Scalar::one());
     // Sign a variable length message
     let message = Message::<Public>::plain("the-times-of-london", b"Chancellor on brink of second bailout for banks");
     // Sign the message with our keypair
     let signature = schnorr.sign(&keypair, message);
     println!("signature: {:?}", signature);
+    // todo: make the check work by not using random number
+    let expected_signature = Signature::<Public>::from_bytes(
+        hex::decode("373ade08b7b92724082cd14a06567a324aa00107a910e5408f42aaa642a4128b393c48d01d5b17fcda0d4b043e62a7a70cc25d91df9e54d5bbb9ce3b61472f16")
+            .unwrap()
+            .try_into()
+            .unwrap()
+    ).unwrap();
+    assert_eq!(signature, expected_signature);
 
     // Get the verifier's key
     let verification_key = keypair.public_key();
