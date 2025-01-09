@@ -1,3 +1,5 @@
+use std::ops::{Add, Mul};
+
 use sha2::{Sha256, Digest};
 use rand::Rng;
 
@@ -12,6 +14,35 @@ pub fn hash(r: u32, pk: u32, message: &str) -> u32 {
     let hash_result = hasher.finalize();
     let result_u32 = u32::from_be_bytes(hash_result[..4].try_into().expect("Hash output too short"));
     result_u32 as u32
+}
+
+// implement scalar for elliptic curve group
+pub struct Scalar{
+    value: u32,
+    order: u32, // group order
+}
+
+impl Scalar {
+    pub fn new(value: u32, order: u32) -> Self {
+        // value should modulo g
+        Self { value: value % order, order }
+    }
+}
+
+impl Add for Scalar {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self::Output {
+        Self { value: (self.value + other.value) % self.order, order: self.order }
+    }
+}
+
+impl Mul for Scalar {
+    type Output = Self;
+
+    fn mul(self, other: Self) -> Self::Output {
+        Self { value: (self.value * other.value) % self.order, order: self.order }
+    }
 }
 
 pub struct Schnorr {
@@ -60,6 +91,8 @@ impl Schnorr {
 // add test
 #[cfg(test)]
 mod tests {
+    use tfhe::integer::bigint::u256;
+
     use super::*;
 
     #[test]
@@ -68,6 +101,43 @@ mod tests {
         let signature = schnorr.sign("hello");
         assert!(schnorr.verify("hello", signature));
     }
+
+    // Start Generation Here
+    #[test]
+    fn test_scalar_new() {
+        let g = 5;
+        let scalar = Scalar::new(10, g);
+        assert_eq!(scalar.value, 0); // 10 % 5 = 0
+        assert_eq!(scalar.order, g);
+    }
+
+    #[test]
+    fn test_scalar_addition() {
+        let g = 5;
+        let a = Scalar::new(2, g);
+        let b = Scalar::new(3, g);
+        let c = a + b;
+        assert_eq!(c.value, 0); // (2 + 3) % 5 = 0
+        assert_eq!(c.order, g);
+    }
+
+    #[test]
+    fn test_scalar_multiplication() {
+        let g = 7;
+        let a = Scalar::new(3, g);
+        let b = Scalar::new(4, g);
+        let c = a * b;
+        assert_eq!(c.value, 5); // (3 * 4) % 7 = 5
+        assert_eq!(c.order, g);
+    }
+
+    // #[test]
+    // fn test_scalar_order() {
+    //     // Order of the secp256k1 elliptic curve in hexadecimal
+    //     const ORDER_HEX: &str = "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141";
+    //     let order = u256::from(ORDER_HEX.split_at(32));
+    //     println!("{:?}", order);
+    // }
 }
 
 
