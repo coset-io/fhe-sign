@@ -174,6 +174,17 @@ impl Div<&Scalar> for Scalar {
     }
 }
 
+impl Div<&Scalar> for &Scalar {
+    type Output = Scalar;
+
+    fn div(self, other: &Scalar) -> Self::Output {
+        if other.value == 0 {
+            panic!("Division by zero");
+        }
+        self * other.inverse()
+    }
+}
+
 impl Debug for Scalar {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.value)
@@ -282,6 +293,17 @@ mod tests {
         let b = Scalar::new(3);
         let b_inv = b.inverse();
         assert_eq!((b * b_inv).value, 1); // 3 * 43681 ≡ 1 (mod 65521)
+    }
+
+      #[test]
+    fn test_inverse_full_cycle() {
+        let a = Scalar::new(12345);
+        let a_inv = a.inverse();
+        assert_eq!((a.clone() * a_inv.clone()).value, 1);
+
+        let b = Scalar::new(65519); // 65519 * 65519 mod 65521 = 1
+        let b_inv = b.inverse();
+        assert_eq!((b.clone() * b_inv.clone()).value, 1);
     }
 
     #[test]
