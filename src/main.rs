@@ -1,14 +1,14 @@
 mod perf_test;
 mod schnorr;
 mod schnorr_btc;
+mod scalar;
 
 use tfhe::prelude::*;
 use sha2::{Sha256, Digest};
 use rand::Rng;
 use std::time::Instant;
 use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint32, FheUint64, ClientKey, FheBool, CompressedServerKey};
-
-use crate::schnorr::{Schnorr};
+use crate::schnorr::Schnorr;
 
 pub fn hash(r: u32, pk: u32, message: &str) -> u32 {
     let mut hasher_input = Vec::new();
