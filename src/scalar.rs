@@ -1,4 +1,4 @@
-use std::{clone::Clone, fmt::{Debug, Display}, ops::{Add, Div, Mul}};
+use std::{clone::Clone, fmt::{Debug, Display}, ops::{Add, Div, Mul, Neg, Sub}};
 
 // Scalars are elements in the finite field modulo n(group order).
 
@@ -12,8 +12,8 @@ pub struct Scalar{
 }
 
 impl Scalar {
-    pub fn new(value: u32) -> Self {
-        Self { value: value % ORDER }
+    pub fn new(value: i32) -> Self {
+        Self { value: value.rem_euclid(ORDER as i32) as u32 }
     }
 
     pub fn inverse(&self) -> Self {
@@ -34,7 +34,7 @@ impl Scalar {
             t = t + ORDER as i32;
         }
 
-        Self::new(t as u32)
+        Self::new(t)
     }
 }
 
@@ -70,6 +70,55 @@ impl Add<Scalar> for &Scalar {
     }
 }
 
+impl Neg for Scalar {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        let value_i32 = self.value as i32;
+        Self { value: (-value_i32).rem_euclid(ORDER as i32) as u32 }
+    }
+}
+
+impl Sub for Scalar {
+    type Output = Self;
+
+    fn sub(self, other: Self) -> Self::Output {
+        let self_i32 = self.value as i32;
+        let other_i32 = other.value as i32;
+        Self { value: (self_i32 - other_i32).rem_euclid(ORDER as i32) as u32 }
+    }
+}
+
+impl Sub<&Scalar> for Scalar {
+    type Output = Self;
+
+    fn sub(self, other: &Scalar) -> Self::Output {
+        let self_i32 = self.value as i32;
+        let other_i32 = other.value as i32;
+        Self { value: (self_i32 - other_i32).rem_euclid(ORDER as i32) as u32 }
+    }
+}
+
+impl Sub<&Scalar> for &Scalar {
+    type Output = Scalar;
+
+    fn sub(self, other: &Scalar) -> Self::Output {
+        let self_i32 = self.value as i32;
+        let other_i32 = other.value as i32;
+        Scalar { value: (self_i32 - other_i32).rem_euclid(ORDER as i32) as u32 }
+    }
+}
+
+impl Sub<Scalar> for &Scalar {
+    type Output = Scalar;
+
+    fn sub(self, other: Scalar) -> Self::Output {
+        let self_i32 = self.value as i32;
+        let other_i32 = other.value as i32;
+        Scalar { value: (self_i32 - other_i32).rem_euclid(ORDER as i32) as u32 }
+    }
+}
+
 impl Mul for Scalar {
     type Output = Self;
 
@@ -90,6 +139,14 @@ impl Mul<&Scalar> for &Scalar {
     type Output = Scalar;
 
     fn mul(self, other: &Scalar) -> Self::Output {
+        Scalar { value: (self.value * other.value) % ORDER }
+    }
+}
+
+impl Mul<Scalar> for &Scalar {
+    type Output = Scalar;
+
+    fn mul(self, other: Scalar) -> Self::Output {
         Scalar { value: (self.value * other.value) % ORDER }
     }
 }
@@ -144,6 +201,58 @@ impl Clone for Scalar {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_addition() {
+        let a = Scalar::new(2);
+        let b = Scalar::new(3);
+        let c = a + b;
+        assert_eq!(c.value, 5);
+    }
+
+    #[test]
+    fn test_addition_overflow() {
+        let a = Scalar::new(65520);
+        let b = Scalar::new(1);
+        let c = &a + &b;
+        assert_eq!(c.value, 0);
+
+        let d = Scalar::new(2);
+        let e = &a + &d;
+        assert_eq!(e.value, 1);
+    }
+
+    #[test]
+    fn test_subtraction() {
+        let a = Scalar::new(5);
+        let b = Scalar::new(3);
+        let c = a - b;
+        assert_eq!(c.value, 2);
+    }
+
+    #[test]
+    fn test_subtraction_overflow() {
+        let a = Scalar::new(0);
+        let b = Scalar::new(1);
+        let c = &a - &b;
+        assert_eq!(c.value, 65520);
+    }
+
+    #[test]
+    fn test_multiplication() {
+        let a = Scalar::new(2);
+        let b = Scalar::new(3);
+        let c = a * b;
+        assert_eq!(c.value, 6);
+    }
+
+    #[test]
+    fn test_multiplication_overflow() {
+        let a = Scalar::new(32761);
+        let b = Scalar::new(2);
+        let c = &a * &b;
+        assert_eq!(c.value, 1);
+    }
 
     #[test]
     fn test_inverse() {

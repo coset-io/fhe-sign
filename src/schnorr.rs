@@ -11,7 +11,7 @@ pub fn hash(r: &Scalar, pk: &Scalar, message: &str) -> Scalar {
     hasher.update(&hasher_input);
     let hash_result = hasher.finalize();
     let result = u32::from_be_bytes(hash_result[..4].try_into().expect("Hash output too short"));
-    Scalar::new(result)
+    Scalar::new(result as i32)
 }
 
 pub struct Schnorr {
