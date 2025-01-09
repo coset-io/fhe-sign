@@ -1,22 +1,6 @@
-
-mod sha256_bool;
-mod sha256;
 mod perf_test;
 mod schnorr;
-mod sha256_fhe_test;
 mod schnorr_btc;
-
-pub mod rayon_wrapper {
-    pub use rayon::iter::{IntoParallelIterator, ParallelIterator};
-}
-
-pub use rayon_wrapper::*;
-
-#[doc(hidden)]
-#[macro_export]
-pub fn __requires_sendable_closure<R, F: FnOnce() -> R + Send>(x: F) -> F {
-    x
-}
 
 use tfhe::prelude::*;
 use sha2::{Sha256, Digest};
@@ -24,9 +8,6 @@ use rand::Rng;
 use std::time::Instant;
 use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint32, FheUint64, ClientKey, FheBool, CompressedServerKey};
 
-use tfhe::boolean::prelude::{ClientKey as ClientKeyBool, Ciphertext, gen_keys};
-use crate::sha256_bool::{pad_sha256_input, bools_to_hex, sha256_fhe as sha256_fhe_bool};
-use crate::sha256::{sha256_fhe, encrypt_data, decrypt_hash};
 use crate::schnorr::{Schnorr};
 
 pub fn hash(r: u32, pk: u32, message: &str) -> u32 {
