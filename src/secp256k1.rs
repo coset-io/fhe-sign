@@ -5,9 +5,9 @@ use std::{clone::Clone, fmt::{Debug, Display}};
 
 // field size
 // const P: &str = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F";
-const P: u32 = 65521;
+const CURVE_ORDER: u32 = 65521;
 // curve order: points number this curve can have
-const CURVE_ORDER: &str = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141";
+// const CURVE_ORDER: &str = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141";
 
 // elliptic curve point
 pub struct Point {
@@ -24,8 +24,8 @@ impl Point {
     /// Creates a new point at infinity.
     pub fn infinity() -> Self {
         Self {
-            x: Scalar::new(0),
-            y: Scalar::new(0),
+            x: Scalar::new(0, CURVE_ORDER),
+            y: Scalar::new(0, CURVE_ORDER),
             is_infinity: true,
         }
     }
@@ -78,12 +78,12 @@ impl Point {
             return Self::infinity();
         }
         // Calculate the slope (lambda) for doubling
-        let numerator = Scalar::new(3) * &self.x * &self.x;
-        let denominator = Scalar::new(2) * &self.y;
+        let numerator = Scalar::new(3, CURVE_ORDER) * &self.x * &self.x;
+        let denominator = Scalar::new(2, CURVE_ORDER) * &self.y;
         let lambda = numerator / denominator;
 
         // Calculate the new x coordinate
-        let x3 = &lambda * &lambda - Scalar::new(2) * &self.x;
+        let x3 = &lambda * &lambda - Scalar::new(2, CURVE_ORDER) * &self.x;
 
         // Calculate the new y coordinate
         let y3 = &lambda * (&self.x - &x3) - &self.y;
@@ -148,7 +148,7 @@ mod tests {
     #[test]
     fn test_add_points_at_infinity() {
         let point_a = Point::infinity();
-        let point_b = Point::new(Scalar::new(3), Scalar::new(4), false);
+        let point_b = Point::new(Scalar::new(3, CURVE_ORDER), Scalar::new(4, CURVE_ORDER), false);
 
         // Adding point at infinity should return the other point
         assert_eq!(point_a.add(&point_b), point_b);
@@ -157,17 +157,17 @@ mod tests {
 
     #[test]
     fn test_add_distinct_points() {
-        let point_a = Point::new(Scalar::new(3), Scalar::new(4), false);
-        let point_b = Point::new(Scalar::new(5), Scalar::new(6), false);
+        let point_a = Point::new(Scalar::new(3, CURVE_ORDER), Scalar::new(4, CURVE_ORDER), false);
+        let point_b = Point::new(Scalar::new(5, CURVE_ORDER), Scalar::new(6, CURVE_ORDER), false);
 
         // 计算斜率 lambda = (6 - 4) / (5 - 3) = 2 / 2 = 1
-        let lambda = Scalar::new(1);
+        let lambda = Scalar::new(1, CURVE_ORDER);
 
         // x3 = lambda^2 - x1 - x2 = 1 - 3 - 5 = -7 mod 65521 = 65514
-        let expected_x = Scalar::new(-7);
+        let expected_x = Scalar::new(-7, CURVE_ORDER);
 
         // y3 = lambda * (x1 - x3) - y1 = 1 * (3 - 65514) - 4 = 1 * (-65511) - 4 = -65515 mod 65521 = 6
-        let expected_y = Scalar::new(-65515); // 65521 - (65515 mod 65521) = 6
+        let expected_y = Scalar::new(-65515, CURVE_ORDER); // 65521 - (65515 mod 65521) = 6
 
         let result = point_a.add(&point_b);
 
@@ -178,13 +178,13 @@ mod tests {
 
     #[test]
     fn test_add_same_point() {
-        let point_a = Point::new(Scalar::new(3), Scalar::new(4), false);
+        let point_a = Point::new(Scalar::new(3, CURVE_ORDER), Scalar::new(4, CURVE_ORDER), false);
 
         // Compute doubling
         // lambda = (3x1^2 + a) / (2y1), assuming a = 0 for secp256k1
         // lambda = (3 * 3^2) / (2 * 4) = 27 / 8 = 3 (since 27 mod 65521 = 27, 8's inverse mod 65521 = 57331
-        let numerator = Scalar::new(3) * &point_a.x * &point_a.x; // 3 * 3 * 3 = 27
-        let denominator = Scalar::new(2) * &point_a.y; // 2 * 4 = 8
+        let numerator = Scalar::new(3, CURVE_ORDER) * &point_a.x * &point_a.x; // 3 * 3 * 3 = 27
+        let denominator = Scalar::new(2, CURVE_ORDER) * &point_a.y; // 2 * 4 = 8
         let lambda = &numerator / &denominator; // 40954
         // For demonstration, let's choose lambda = 1 for simplicity
         println!("lambda: {}", lambda);
@@ -192,10 +192,10 @@ mod tests {
         println!("denominator: {}", denominator);
         println!("1 / denominator: {}", denominator.inverse());
         // x3 = lambda^2 - 2*x1 = 23552
-        let expected_x = Scalar::new(23552); // 65521 - 5 = 65516
+        let expected_x = Scalar::new(23552, CURVE_ORDER); // 65521 - 5 = 65516
 
         // y3 = lambda * (x1 - x3) - y1 = 43370
-        let expected_y = Scalar::new(43370); // 65521 - 65517 = 4
+        let expected_y = Scalar::new(43370, CURVE_ORDER); // 65521 - 65517 = 4
 
         let result = point_a.add(&point_a);
 
@@ -206,8 +206,8 @@ mod tests {
 
     #[test]
     fn test_add_opposite_points() {
-        let point_a = Point::new(Scalar::new(3), Scalar::new(4), false);
-        let point_b = Point::new(Scalar::new(3), Scalar::new(-4), false);
+        let point_a = Point::new(Scalar::new(3, CURVE_ORDER), Scalar::new(4, CURVE_ORDER), false);
+        let point_b = Point::new(Scalar::new(3, CURVE_ORDER), Scalar::new(-4, CURVE_ORDER), false);
 
         // Adding a point and its opposite should result in the point at infinity
         assert_eq!(point_a.add(&point_b), Point::infinity());
