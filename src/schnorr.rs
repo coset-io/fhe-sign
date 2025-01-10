@@ -135,54 +135,29 @@ impl Schnorr {
     }
 
     /// Signs a message using the Schnorr signature scheme according to BIP-340.
-    pub fn sign(&self, message: &str) -> Signature {
+    pub fn sign(&self, message: &str, aux_rand: &[u8]) -> Signature {
         // Compute d = d0 if has_even_y(P) else n - d0
         let d = if self.public_key.y.value() % BigUint::from(2u32) == BigUint::from(0u32) {
             self.private_key.value().clone()
         } else {
             get_curve_order() - self.private_key.value()
         };
-        let k0_expected = BigUint::from_str("13197915491876976259551408334663313131887465579707439106007590226688883891305").unwrap();
 
         // Generate deterministic nonce according to BIP340
-        let aux_rand = hex::decode("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+        let k0 = compute_nonce(&d, &self.public_key, message.as_bytes(), aux_rand);
 
-        // Compute nonce
-        let k0 = compute_nonce(
-            &d,
-            &self.public_key,
-            message.as_bytes(),
-            &aux_rand
-        );
-        assert_eq!(k0, k0_expected);
         // Calculate R = k * G
         let r = self.generator.scalar_mul(&Scalar::new(k0.clone()));
-        let r1 = Point::get_generator().scalar_mul(&Scalar::new(k0.clone()));
-        println!("r: {:?}", r);
-        println!("r1: {:?}", r1);
-        assert_eq!(r, r1);
+
         // k = n - k0 if not has_even_y(R) else k0
         let k = if r.y.value() % BigUint::from(2u32) == BigUint::from(1u32) {
-            get_curve_order() - k0.clone()
+            get_curve_order() - k0
         } else {
-            k0.clone()
+            k0
         };
-        let k1 = if r.y.value() % BigUint::from(2u32) == BigUint::from(1u32) {
-            get_curve_order() - k0.clone()
-        } else {
-            k0.clone()
-        };
-
-        println!("k: {:?}", k);
-        println!("k1: {:?}", k1);
-        assert_eq!(k, k1);
 
         // Calculate e = hash(R || P || message)
         let e = compute_challenge(&r, &self.public_key, message.as_bytes());
-        let k_expected = BigUint::from_str("102594173745439219164019576674024594720950098699367465276597572914829277603032").unwrap();
-        let e_expected = BigUint::from_str("48720319366320448218248931228309816100339060958010591740548832691369990260430").unwrap();
-        assert_eq!(k, k_expected);
-        assert_eq!(e, e_expected);
 
         // Calculate s = (k + e * d) % n
         let s = (k + e * d) % get_curve_order();
@@ -324,7 +299,7 @@ mod tests {
         );
 
         // Sign message
-        let sig = schnorr.sign(std::str::from_utf8(&message).unwrap());
+        let sig = schnorr.sign(std::str::from_utf8(&message).unwrap(), &aux_rand);
         assert_eq!(sig.to_bytes(), expected_sig);
 
         // Verify signature
