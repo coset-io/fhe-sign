@@ -8,15 +8,19 @@ use k256::schnorr::{SigningKey, Signature as K256Signature};
 use k256::schnorr::signature::{Signer, Verifier};
 use hex;
 
+/// BIP-340 tag constants
+const AUX_TAG: &[u8] = b"BIP0340/aux";
+const NONCE_TAG: &[u8] = b"BIP0340/nonce";
+const CHALLENGE_TAG: &[u8] = b"BIP0340/challenge";
+
 /// Implements the Schnorr signature scheme over the secp256k1 curve.
 /// This implementation follows BIP-340 specification.
 
 /// Computes the tagged hash according to BIP340 specification.
 /// The tag is used to prevent cross-protocol attacks by making the hash domain-specific.
-fn tagged_hash(tag: &str, msg: &[u8]) -> Vec<u8> {
-    // Compute the tag hash
+fn tagged_hash(tag: &[u8], msg: &[u8]) -> Vec<u8> {
     let mut tag_hasher = Sha256::new();
-    tag_hasher.update(tag.as_bytes());
+    tag_hasher.update(tag);
     let tag_hash = tag_hasher.finalize();
 
     // The tagged hash is SHA256(tag_hash || tag_hash || msg)
@@ -46,10 +50,7 @@ pub fn hash(r: &Point, pk: &Point, message: &str) -> Scalar {
     hasher_input.extend_from_slice(&serialize_field_element(&pk.x));
     hasher_input.extend_from_slice(message.as_bytes());
 
-    // Use the BIP340/challenge tag for the main signature hash
-    let hash_result = tagged_hash("BIPSchnorrDerive", &hasher_input);
-
-    // Convert the hash to a scalar modulo the curve order
+    let hash_result = tagged_hash(CHALLENGE_TAG, &hasher_input);
     let hash_value = BigUint::from_bytes_be(&hash_result) % get_curve_order();
     Scalar::new(hash_value)
 }
@@ -59,20 +60,15 @@ pub fn hash(r: &Point, pk: &Point, message: &str) -> Scalar {
 pub fn hash_nonce(secret_key: &Scalar, message: &str, aux_rand: Option<&[u8]>) -> Scalar {
     let mut hasher_input = Vec::new();
 
-    // If auxiliary randomness is provided, hash it first with BIP340/aux tag
     if let Some(aux) = aux_rand {
-        let aux_hash = tagged_hash("BIPSchnorrAux", aux);
+        let aux_hash = tagged_hash(AUX_TAG, aux);
         hasher_input.extend_from_slice(&aux_hash);
     }
 
-    // Add secret key (as 32-byte array) and message
     hasher_input.extend_from_slice(&serialize_field_element(secret_key.as_field_element()));
     hasher_input.extend_from_slice(message.as_bytes());
 
-    // Use the BIP340/nonce tag
-    let hash_result = tagged_hash("BIPSchnorrNonce", &hasher_input);
-
-    // Convert to scalar
+    let hash_result = tagged_hash(NONCE_TAG, &hasher_input);
     let hash_value = BigUint::from_bytes_be(&hash_result) % get_curve_order();
     Scalar::new(hash_value)
 }
