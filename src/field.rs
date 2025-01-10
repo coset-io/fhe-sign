@@ -68,6 +68,31 @@ impl FieldElement {
             order: self.order.clone(),
         }
     }
+
+    /// Compute the square root of this field element using the Tonelli-Shanks algorithm
+    pub fn sqrt(&self) -> Self {
+        // For secp256k1's prime p, we know that p ≡ 3 (mod 4)
+        // So we can use the formula: sqrt(a) = a^((p+1)/4) mod p
+        let p = &self.order;
+        let exp = (p + BigUint::from(1u32)) >> 2;
+        self.pow(&exp)
+    }
+
+    /// Compute self^exp in the field
+    pub fn pow(&self, exp: &BigUint) -> Self {
+        let mut base = self.clone();
+        let mut result = FieldElement::new(BigUint::from(1u32), self.order.clone());
+        let mut exp = exp.clone();
+
+        while exp > BigUint::from(0u32) {
+            if &exp % BigUint::from(2u32) == BigUint::from(1u32) {
+                result = &result * &base;
+            }
+            base = &base * &base;
+            exp >>= 1;
+        }
+        result
+    }
 }
 
 impl Add for FieldElement {
