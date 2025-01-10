@@ -1,6 +1,6 @@
 use crate::field::FieldElement;
 use crate::scalar::{Scalar, new_base_field, get_field_size};
-use std::{clone::Clone, fmt::{Debug, Display}};
+use std::{clone::Clone, fmt::{Debug, Display}, ops::{Sub, Neg}};
 use num_bigint::BigUint;
 
 /// Implementation of the secp256k1 elliptic curve: y^2 = x^3 + 7 (mod p)
@@ -144,6 +144,37 @@ impl Display for Point {
             write!(f, "Point at infinity")
         } else {
             write!(f, "({}, {})", self.x, self.y)
+        }
+    }
+}
+
+impl Sub for Point {
+    type Output = Self;
+
+    fn sub(self, other: Self) -> Self::Output {
+        self.add(&(-other))
+    }
+}
+
+impl Sub<&Point> for Point {
+    type Output = Self;
+
+    fn sub(self, other: &Point) -> Self::Output {
+        self.add(&(-other.clone()))
+    }
+}
+
+impl Neg for Point {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        if self.is_infinity {
+            return Self::infinity();
+        }
+        Self {
+            x: self.x.clone(),
+            y: -self.y,
+            is_infinity: false,
         }
     }
 }
