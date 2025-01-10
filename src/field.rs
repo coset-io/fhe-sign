@@ -1,22 +1,6 @@
 use std::{clone::Clone, fmt::{Debug, Display}, ops::{Add, Div, Mul, Neg, Sub}};
 use num_bigint::{BigUint, BigInt};
 
-/// The prime field size (p) for secp256k1 curve
-const FIELD_SIZE: &str = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F";
-
-/// Returns the field size as a BigUint
-pub fn get_field_size() -> BigUint {
-    BigUint::parse_bytes(&FIELD_SIZE[2..].as_bytes(), 16).unwrap()
-}
-
-/// The curve order (n) for secp256k1 curve
-const CURVE_ORDER: &str = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141";
-
-/// Returns the curve order as a BigUint
-pub fn get_curve_order() -> BigUint {
-    BigUint::parse_bytes(&CURVE_ORDER[2..].as_bytes(), 16).unwrap()
-}
-
 /// Represents an element in a prime field GF(p).
 /// All operations are performed modulo the field characteristic p.
 #[derive(Clone, Debug, PartialEq)]
@@ -41,16 +25,6 @@ impl FieldElement {
     /// Returns the order of the field.
     pub fn order(&self) -> &BigUint {
         &self.order
-    }
-
-    /// Creates a new field element in the base field (mod p).
-    pub fn new_base(value: BigUint) -> Self {
-        Self::new(value, get_field_size())
-    }
-
-    /// Creates a new field element in the scalar field (mod n).
-    pub fn new_scalar(value: BigUint) -> Self {
-        Self::new(value, get_curve_order())
     }
 
     /// Computes the multiplicative inverse using the Extended Euclidean Algorithm.

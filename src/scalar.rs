@@ -1,5 +1,31 @@
 use num_bigint::BigUint;
-use crate::field::{FieldElement, get_curve_order};
+use crate::field::FieldElement;
+
+/// The prime field size (p) for secp256k1 curve
+const FIELD_SIZE: &str = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F";
+
+/// The curve order (n) for secp256k1 curve
+const CURVE_ORDER: &str = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141";
+
+/// Returns the field size as a BigUint
+pub fn get_field_size() -> BigUint {
+    BigUint::parse_bytes(&FIELD_SIZE[2..].as_bytes(), 16).unwrap()
+}
+
+/// Returns the curve order as a BigUint
+pub fn get_curve_order() -> BigUint {
+    BigUint::parse_bytes(&CURVE_ORDER[2..].as_bytes(), 16).unwrap()
+}
+
+/// Creates a new field element in the base field (mod p).
+pub fn new_base_field(value: BigUint) -> FieldElement {
+    FieldElement::new(value, get_field_size())
+}
+
+/// Creates a new field element in the scalar field (mod n).
+pub fn new_scalar_field(value: BigUint) -> FieldElement {
+    FieldElement::new(value, get_curve_order())
+}
 
 /// Represents a scalar value in the secp256k1 curve's scalar field.
 /// This is specifically for scalar multiplication operations in ECC.
@@ -9,7 +35,7 @@ pub struct Scalar(FieldElement);
 impl Scalar {
     /// Creates a new scalar value, automatically reducing it modulo the curve order.
     pub fn new(value: BigUint) -> Self {
-        Self(FieldElement::new_scalar(value))
+        Self(new_scalar_field(value))
     }
 
     /// Creates a scalar from bytes in big-endian format.

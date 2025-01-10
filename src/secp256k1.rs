@@ -1,5 +1,5 @@
-use crate::field::{FieldElement, get_field_size};
-use crate::scalar::Scalar;
+use crate::field::FieldElement;
+use crate::scalar::{Scalar, new_base_field, get_field_size};
 use std::{clone::Clone, fmt::{Debug, Display}};
 use num_bigint::BigUint;
 
@@ -28,7 +28,7 @@ impl Point {
             // Verify that the point is on the curve
             let y2 = &y * &y;
             let x3 = &x * &x * &x;
-            let rhs = x3 + FieldElement::new_base(BigUint::from(B));
+            let rhs = x3 + new_base_field(BigUint::from(B));
             assert_eq!(y2, rhs, "Point is not on the curve");
         }
         Self { x, y, is_infinity }
@@ -37,8 +37,8 @@ impl Point {
     /// Creates a new point at infinity (the identity element of the curve).
     pub fn infinity() -> Self {
         Self {
-            x: FieldElement::new_base(BigUint::from(0u32)),
-            y: FieldElement::new_base(BigUint::from(0u32)),
+            x: new_base_field(BigUint::from(0u32)),
+            y: new_base_field(BigUint::from(0u32)),
             is_infinity: true,
         }
     }
@@ -57,9 +57,9 @@ impl Point {
         if self.x == other.x {
             if self.y == other.y {
                 // Point doubling case - handle it directly here
-                let three = FieldElement::new_base(BigUint::from(3u32));
-                let two = FieldElement::new_base(BigUint::from(2u32));
-                let a = FieldElement::new_base(BigUint::from(A));
+                let three = new_base_field(BigUint::from(3u32));
+                let two = new_base_field(BigUint::from(2u32));
+                let a = new_base_field(BigUint::from(A));
 
                 let numerator = &(&three * &self.x * &self.x) + &a;
                 let denominator = &two * &self.y;
@@ -156,10 +156,10 @@ mod tests {
     fn get_generator() -> Point {
         let x = BigUint::parse_bytes(b"79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798", 16).unwrap();
         let y = BigUint::parse_bytes(b"483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8", 16).unwrap();
-
+        
         Point::new(
-            FieldElement::new_base(x),
-            FieldElement::new_base(y),
+            new_base_field(x),
+            new_base_field(y),
             false
         )
     }
@@ -167,11 +167,11 @@ mod tests {
     #[test]
     fn test_generator_point() {
         let g = get_generator();
-
+        
         // Verify that G is on the curve
         let y2 = &g.y * &g.y;
         let x3 = &g.x * &g.x * &g.x;
-        let rhs = x3 + FieldElement::new_base(BigUint::from(B));
+        let rhs = x3 + new_base_field(BigUint::from(B));
         assert_eq!(y2, rhs, "Generator point is not on the curve");
     }
 
@@ -185,11 +185,11 @@ mod tests {
     fn test_point_addition() {
         let g = get_generator();
         let g2 = g.double();
-
+        
         // Verify G + G = 2G is on the curve
         let y2 = &g2.y * &g2.y;
         let x3 = &g2.x * &g2.x * &g2.x;
-        let rhs = x3 + FieldElement::new_base(BigUint::from(B));
+        let rhs = x3 + new_base_field(BigUint::from(B));
         assert_eq!(y2, rhs, "2G is not on the curve");
     }
 
@@ -198,13 +198,13 @@ mod tests {
         let g = get_generator();
         let scalar = Scalar::new(BigUint::from(2u32));
         let g2 = g.scalar_mul(&scalar);
-
+        
         // Verify 2G is on the curve
         let y2 = &g2.y * &g2.y;
         let x3 = &g2.x * &g2.x * &g2.x;
-        let rhs = x3 + FieldElement::new_base(BigUint::from(B));
+        let rhs = x3 + new_base_field(BigUint::from(B));
         assert_eq!(y2, rhs, "2G is not on the curve");
-
+        
         // Verify that scalar multiplication matches repeated addition
         let g2_add = g.add(&g);
         assert_eq!(g2, g2_add);
