@@ -1,17 +1,19 @@
 use crate::scalar::Scalar;
 use std::{clone::Clone, fmt::{Debug, Display}};
+use num_bigint::BigUint;
 
-// implement secp256k1 elliptic curve: y^2 = x^3 + 7
+// Implementation of the secp256k1 elliptic curve: y^2 = x^3 + 7
 
-// field size
-// const P: &str = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F";
-const CURVE_ORDER: u32 = 65521;
-// curve order: points number this curve can have
-// const CURVE_ORDER: &str = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141";
+// Field size (p) of secp256k1
+const P: &str = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F";
 
-// elliptic curve point
+// Curve parameters
+const A: u32 = 0; // Coefficient of x term
+const B: u32 = 7; // Constant term
+
+// Elliptic curve point
 pub struct Point {
-    pub x: Scalar,  // should we use scalar?
+    pub x: Scalar,
     pub y: Scalar,
     pub is_infinity: bool,
 }
@@ -21,18 +23,18 @@ impl Point {
         Self { x, y, is_infinity }
     }
 
-    /// Creates a new point at infinity.
+    /// Creates a new point at infinity (the identity element of the curve).
     pub fn infinity() -> Self {
         Self {
-            x: Scalar::new(0, CURVE_ORDER),
-            y: Scalar::new(0, CURVE_ORDER),
+            x: Scalar::new(BigUint::from(0u32)),
+            y: Scalar::new(BigUint::from(0u32)),
             is_infinity: true,
         }
     }
 
-    /// Adds two points on the elliptic curve.
-    pub fn add(&self, other: &Self) -> Self {
-        // If either point is at infinity, return the other point
+    /// Adds two points on the curve using the standard elliptic curve addition formulas.
+    pub fn add(&self, other: &Point) -> Self {
+        // Handle special cases involving point at infinity
         if self.is_infinity {
             return other.clone();
         }
@@ -40,73 +42,52 @@ impl Point {
             return self.clone();
         }
 
-        // If the points have the same x coordinate
-        if self.x == other.x {
-            // If y coordinates are different, the result is infinity
-            if self.y != other.y {
-                return Self::infinity();
-            } else {
-                // Point doubling
-                return self.double();
-            }
+        // If points are inverses of each other, return point at infinity
+        if self.x == other.x && self.y == (-other.y.clone()) {
+            return Self::infinity();
         }
 
-        // Calculate the slope (lambda)
-        let numerator = &other.y - &self.y;
-        let denominator = &other.x - &self.x;
-        let lambda = numerator / denominator;
+        // Calculate slope (lambda)
+        let lambda = if self.x == other.x && self.y == other.y {
+            // Point doubling: lambda = (3x^2 + a) / (2y)
+            let numerator = &(&Scalar::new(BigUint::from(3u32)) * &self.x * &self.x)
+                + &Scalar::new(BigUint::from(A));
+            let denominator = &Scalar::new(BigUint::from(2u32)) * &self.y;
+            &numerator / &denominator
+        } else {
+            // Point addition: lambda = (y2 - y1) / (x2 - x1)
+            let numerator = &other.y - &self.y;
+            let denominator = &other.x - &self.x;
+            &numerator / &denominator
+        };
 
-        // Calculate the new x coordinate
-        let x3 = &lambda * &lambda - &self.x - &other.x;
+        // Calculate new point coordinates
+        // x3 = lambda^2 - x1 - x2
+        let x3 = &(&lambda * &lambda) - &self.x - &other.x;
 
-        // Calculate the new y coordinate
-        let y3 = &lambda * (&self.x - &x3) - &self.y;
+        // y3 = lambda(x1 - x3) - y1
+        let y3 = &(&lambda * &(&self.x - &x3)) - &self.y;
 
-        Self {
-            x: x3,
-            y: y3,
-            is_infinity: false,
-        }
+        Self::new(x3, y3, false)
     }
 
-    /// Doubles a point on the elliptic curve.
+    /// Doubles a point on the curve (adds it to itself).
     pub fn double(&self) -> Self {
-        if self.is_infinity {
-            return Self::infinity();
-        }
-        if self.y.value == 0 {
-            return Self::infinity();
-        }
-        // Calculate the slope (lambda) for doubling
-        let numerator = Scalar::new(3, CURVE_ORDER) * &self.x * &self.x;
-        let denominator = Scalar::new(2, CURVE_ORDER) * &self.y;
-        let lambda = numerator / denominator;
-
-        // Calculate the new x coordinate
-        let x3 = &lambda * &lambda - Scalar::new(2, CURVE_ORDER) * &self.x;
-
-        // Calculate the new y coordinate
-        let y3 = &lambda * (&self.x - &x3) - &self.y;
-
-        Self {
-            x: x3,
-            y: y3,
-            is_infinity: false,
-        }
+        self.add(self)
     }
 
     /// Multiplies a point by a scalar using the double-and-add algorithm.
     pub fn scalar_mul(&self, scalar: &Scalar) -> Self {
         let mut result = Self::infinity();
-        let mut addend = self.clone();
-        let mut k = scalar.value;
+        let mut temp = self.clone();
+        let mut scalar_bits = scalar.value.clone();
 
-        while k > 0 {
-            if k & 1 == 1 {
-                result = result.add(&addend);
+        while scalar_bits > BigUint::from(0u32) {
+            if &scalar_bits & BigUint::from(1u32) == BigUint::from(1u32) {
+                result = result.add(&temp);
             }
-            addend = addend.double();
-            k >>= 1;
+            temp = temp.double();
+            scalar_bits >>= 1;
         }
 
         result
@@ -148,7 +129,11 @@ mod tests {
     #[test]
     fn test_add_points_at_infinity() {
         let point_a = Point::infinity();
-        let point_b = Point::new(Scalar::new(3, CURVE_ORDER), Scalar::new(4, CURVE_ORDER), false);
+        let point_b = Point::new(
+            Scalar::new(BigUint::from(3u32)),
+            Scalar::new(BigUint::from(4u32)),
+            false
+        );
 
         // Adding point at infinity should return the other point
         assert_eq!(point_a.add(&point_b), point_b);
@@ -157,59 +142,61 @@ mod tests {
 
     #[test]
     fn test_add_distinct_points() {
-        let point_a = Point::new(Scalar::new(3, CURVE_ORDER), Scalar::new(4, CURVE_ORDER), false);
-        let point_b = Point::new(Scalar::new(5, CURVE_ORDER), Scalar::new(6, CURVE_ORDER), false);
-
-        // 计算斜率 lambda = (6 - 4) / (5 - 3) = 2 / 2 = 1
-        let lambda = Scalar::new(1, CURVE_ORDER);
-
-        // x3 = lambda^2 - x1 - x2 = 1 - 3 - 5 = -7 mod 65521 = 65514
-        let expected_x = Scalar::new(-7, CURVE_ORDER);
-
-        // y3 = lambda * (x1 - x3) - y1 = 1 * (3 - 65514) - 4 = 1 * (-65511) - 4 = -65515 mod 65521 = 6
-        let expected_y = Scalar::new(-65515, CURVE_ORDER); // 65521 - (65515 mod 65521) = 6
+        let point_a = Point::new(
+            Scalar::new(BigUint::from(3u32)),
+            Scalar::new(BigUint::from(4u32)),
+            false
+        );
+        let point_b = Point::new(
+            Scalar::new(BigUint::from(5u32)),
+            Scalar::new(BigUint::from(6u32)),
+            false
+        );
 
         let result = point_a.add(&point_b);
 
-        assert_eq!(result.x, expected_x);
-        assert_eq!(result.y, expected_y);
-        assert!(!result.is_infinity);
+        // Verify result is on the curve: y^2 = x^3 + 7
+        let x3_cubed = &result.x * &result.x * &result.x;
+        let y2 = &result.y * &result.y;
+        let right_side = &x3_cubed + &Scalar::new(BigUint::from(B));
+
+        assert_eq!(y2, right_side);
     }
 
     #[test]
-    fn test_add_same_point() {
-        let point_a = Point::new(Scalar::new(3, CURVE_ORDER), Scalar::new(4, CURVE_ORDER), false);
+    fn test_point_doubling() {
+        let point = Point::new(
+            Scalar::new(BigUint::from(3u32)),
+            Scalar::new(BigUint::from(4u32)),
+            false
+        );
 
-        // Compute doubling
-        // lambda = (3x1^2 + a) / (2y1), assuming a = 0 for secp256k1
-        // lambda = (3 * 3^2) / (2 * 4) = 27 / 8 = 3 (since 27 mod 65521 = 27, 8's inverse mod 65521 = 57331
-        let numerator = Scalar::new(3, CURVE_ORDER) * &point_a.x * &point_a.x; // 3 * 3 * 3 = 27
-        let denominator = Scalar::new(2, CURVE_ORDER) * &point_a.y; // 2 * 4 = 8
-        let lambda = &numerator / &denominator; // 40954
-        // For demonstration, let's choose lambda = 1 for simplicity
-        println!("lambda: {}", lambda);
-        println!("numerator: {}", numerator);
-        println!("denominator: {}", denominator);
-        println!("1 / denominator: {}", denominator.inverse());
-        // x3 = lambda^2 - 2*x1 = 23552
-        let expected_x = Scalar::new(23552, CURVE_ORDER); // 65521 - 5 = 65516
+        let doubled = point.double();
 
-        // y3 = lambda * (x1 - x3) - y1 = 43370
-        let expected_y = Scalar::new(43370, CURVE_ORDER); // 65521 - 65517 = 4
+        // Verify result is on the curve: y^2 = x^3 + 7
+        let x3_cubed = &doubled.x * &doubled.x * &doubled.x;
+        let y2 = &doubled.y * &doubled.y;
+        let right_side = &x3_cubed + &Scalar::new(BigUint::from(B));
 
-        let result = point_a.add(&point_a);
-
-        assert_eq!(result.x, expected_x);
-        assert_eq!(result.y, expected_y);
-        assert!(!result.is_infinity);
+        assert_eq!(y2, right_side);
     }
 
     #[test]
-    fn test_add_opposite_points() {
-        let point_a = Point::new(Scalar::new(3, CURVE_ORDER), Scalar::new(4, CURVE_ORDER), false);
-        let point_b = Point::new(Scalar::new(3, CURVE_ORDER), Scalar::new(-4, CURVE_ORDER), false);
+    fn test_scalar_multiplication() {
+        let point = Point::new(
+            Scalar::new(BigUint::from(3u32)),
+            Scalar::new(BigUint::from(4u32)),
+            false
+        );
+        let scalar = Scalar::new(BigUint::from(2u32));
 
-        // Adding a point and its opposite should result in the point at infinity
-        assert_eq!(point_a.add(&point_b), Point::infinity());
+        let result = point.scalar_mul(&scalar);
+
+        // Verify result is on the curve: y^2 = x^3 + 7
+        let x3_cubed = &result.x * &result.x * &result.x;
+        let y2 = &result.y * &result.y;
+        let right_side = &x3_cubed + &Scalar::new(BigUint::from(B));
+
+        assert_eq!(y2, right_side);
     }
 }

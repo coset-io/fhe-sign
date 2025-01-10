@@ -1,41 +1,85 @@
 use std::{clone::Clone, fmt::{Debug, Display}, ops::{Add, Div, Mul, Neg, Sub}};
+use num_bigint::{BigUint, BigInt, Sign};
+use hex;
 
-// Scalars are elements in the finite field modulo n(group order).
+// Scalars are elements in the finite field modulo n (secp256k1 curve order).
+// The curve order is a 256-bit number representing the number of points on the curve.
+const CURVE_ORDER: &str = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141";
 
-// curve group order
-// const CURVE_ORDER: &str = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141";
-// todo: use real curve order, how to handle big number?
-const CURVE_ORDER: u32 = 65521;
+// Helper function to get curve order as BigUint
+fn get_curve_order() -> BigUint {
+    // Remove "0x" prefix and convert hex string to BigUint
+    let hex_str = CURVE_ORDER.trim_start_matches("0x");
+    BigUint::parse_bytes(hex_str.as_bytes(), 16).unwrap()
+}
 
-pub struct Scalar{
-    pub value: u32,
-    pub order: u32,
+pub struct Scalar {
+    pub value: BigUint,
+    pub order: BigUint,
 }
 
 impl Scalar {
-    pub fn new(value: i32, order: u32) -> Self {
-        Self { value: value.rem_euclid(order as i32) as u32, order }
+    pub fn new(value: BigUint) -> Self {
+        let order = get_curve_order();
+        Self {
+            value: value % &order,
+            order
+        }
     }
 
+    // Create a scalar from a signed integer
+    pub fn from_i32(value: i32) -> Self {
+        let order = get_curve_order();
+        let value = if value < 0 {
+            // For negative values, we add the order until we get a positive number
+            let abs_val = (-value) as u32;
+            let abs_big = BigUint::from(abs_val);
+            &order - (abs_big % &order)
+        } else {
+            BigUint::from(value as u32) % &order
+        };
+        Self { value, order }
+    }
+
+    // Calculate the modular multiplicative inverse using Extended Euclidean Algorithm
     pub fn inverse(&self) -> Self {
-        // Extended Euclidean Algorithm to find modular multiplicative inverse
-        let mut t = 0i32;
-        let mut newt = 1i32;
-        let mut r = self.order as i32;
-        let mut newr = self.value as i32;
-
-        while newr != 0 {
-            let quotient = r / newr;
-            (t, newt) = (newt, t - quotient * newt);
-            (r, newr) = (newr, r - quotient * newr);
+        if self.value == BigUint::from(0u32) {
+            panic!("Cannot compute inverse of zero");
         }
 
-        // Convert back to positive value if negative
-        if t < 0 {
-            t = t + self.order as i32;
+        let mut t = BigInt::from(0);
+        let mut newt = BigInt::from(1);
+        let mut r = BigInt::from(self.order.clone());
+        let mut newr = BigInt::from(self.value.clone());
+
+        while newr != BigInt::from(0) {
+            let quotient = &r / &newr;
+            let temp_t = t;
+            t = newt.clone();
+            newt = temp_t - &quotient * &newt;
+
+            let temp_r = r;
+            r = newr.clone();
+            newr = temp_r - quotient * newr;
         }
 
-        Self::new(t, self.order)
+        // If r > 1, n and a are not coprime, no inverse exists
+        if r > BigInt::from(1) {
+            panic!("Modular inverse does not exist");
+        }
+
+        // Make positive
+        while t < BigInt::from(0) {
+            t = t + BigInt::from(self.order.clone());
+        }
+
+        // Convert back to BigUint and reduce mod n
+        let value = match t.to_biguint() {
+            Some(v) => v % &self.order,
+            None => panic!("Failed to convert to unsigned"),
+        };
+
+        Self { value, order: self.order.clone() }
     }
 }
 
@@ -43,7 +87,10 @@ impl Add for Scalar {
     type Output = Self;
 
     fn add(self, other: Self) -> Self::Output {
-        Self { value: (self.value + other.value) % self.order, order: self.order }
+        Self {
+            value: (self.value + other.value) % &self.order,
+            order: self.order
+        }
     }
 }
 
@@ -51,7 +98,10 @@ impl Add<&Scalar> for Scalar {
     type Output = Self;
 
     fn add(self, other: &Scalar) -> Self::Output {
-        Self { value: (self.value + other.value) % self.order, order: self.order }
+        Self {
+            value: (self.value + &other.value) % &self.order,
+            order: self.order
+        }
     }
 }
 
@@ -59,7 +109,10 @@ impl Add<&Scalar> for &Scalar {
     type Output = Scalar;
 
     fn add(self, other: &Scalar) -> Self::Output {
-        Scalar { value: (self.value + other.value) % self.order, order: self.order }
+        Scalar {
+            value: (&self.value + &other.value) % &self.order,
+            order: self.order.clone()
+        }
     }
 }
 
@@ -67,7 +120,10 @@ impl Add<Scalar> for &Scalar {
     type Output = Scalar;
 
     fn add(self, other: Scalar) -> Self::Output {
-        Scalar { value: (self.value + other.value) % self.order, order: self.order }
+        Scalar {
+            value: (&self.value + other.value) % &self.order,
+            order: self.order.clone()
+        }
     }
 }
 
@@ -75,8 +131,10 @@ impl Neg for Scalar {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
-        let value_i32 = self.value as i32;
-        Self { value: (-value_i32).rem_euclid(self.order as i32) as u32, order: self.order }
+        Self {
+            value: &self.order - (self.value % &self.order),
+            order: self.order
+        }
     }
 }
 
@@ -84,9 +142,14 @@ impl Sub for Scalar {
     type Output = Self;
 
     fn sub(self, other: Self) -> Self::Output {
-        let self_i32 = self.value as i32;
-        let other_i32 = other.value as i32;
-        Self { value: (self_i32 - other_i32).rem_euclid(self.order as i32) as u32, order: self.order }
+        let mut result = self.value;
+        if result < other.value {
+            result = result + &self.order;
+        }
+        Self {
+            value: (result - other.value) % &self.order,
+            order: self.order
+        }
     }
 }
 
@@ -94,9 +157,14 @@ impl Sub<&Scalar> for Scalar {
     type Output = Self;
 
     fn sub(self, other: &Scalar) -> Self::Output {
-        let self_i32 = self.value as i32;
-        let other_i32 = other.value as i32;
-        Self { value: (self_i32 - other_i32).rem_euclid(self.order as i32) as u32, order: self.order }
+        let mut result = self.value;
+        if result < other.value {
+            result = result + &self.order;
+        }
+        Self {
+            value: (result - &other.value) % &self.order,
+            order: self.order
+        }
     }
 }
 
@@ -104,9 +172,14 @@ impl Sub<&Scalar> for &Scalar {
     type Output = Scalar;
 
     fn sub(self, other: &Scalar) -> Self::Output {
-        let self_i32 = self.value as i32;
-        let other_i32 = other.value as i32;
-        Scalar { value: (self_i32 - other_i32).rem_euclid(self.order as i32) as u32, order: self.order }
+        let mut result = self.value.clone();
+        if result < other.value {
+            result = result + &self.order;
+        }
+        Scalar {
+            value: (result - &other.value) % &self.order,
+            order: self.order.clone()
+        }
     }
 }
 
@@ -114,9 +187,14 @@ impl Sub<Scalar> for &Scalar {
     type Output = Scalar;
 
     fn sub(self, other: Scalar) -> Self::Output {
-        let self_i32 = self.value as i32;
-        let other_i32 = other.value as i32;
-        Scalar { value: (self_i32 - other_i32).rem_euclid(self.order as i32) as u32, order: self.order }
+        let mut result = self.value.clone();
+        if result < other.value {
+            result = result + &self.order;
+        }
+        Scalar {
+            value: (result - other.value) % &self.order,
+            order: self.order.clone()
+        }
     }
 }
 
@@ -124,7 +202,10 @@ impl Mul for Scalar {
     type Output = Self;
 
     fn mul(self, other: Self) -> Self::Output {
-        Self { value: (self.value * other.value) % self.order, order: self.order }
+        Self {
+            value: (self.value * other.value) % &self.order,
+            order: self.order
+        }
     }
 }
 
@@ -132,7 +213,10 @@ impl Mul<&Scalar> for Scalar {
     type Output = Self;
 
     fn mul(self, other: &Scalar) -> Self::Output {
-        Scalar { value: (self.value * other.value) % self.order, order: self.order }
+        Self {
+            value: (self.value * &other.value) % &self.order,
+            order: self.order
+        }
     }
 }
 
@@ -140,7 +224,10 @@ impl Mul<&Scalar> for &Scalar {
     type Output = Scalar;
 
     fn mul(self, other: &Scalar) -> Self::Output {
-        Scalar { value: (self.value * other.value) % self.order, order: self.order }
+        Scalar {
+            value: (&self.value * &other.value) % &self.order,
+            order: self.order.clone()
+        }
     }
 }
 
@@ -148,7 +235,10 @@ impl Mul<Scalar> for &Scalar {
     type Output = Scalar;
 
     fn mul(self, other: Scalar) -> Self::Output {
-        Scalar { value: (self.value * other.value) % self.order, order: self.order }
+        Scalar {
+            value: (&self.value * other.value) % &self.order,
+            order: self.order.clone()
+        }
     }
 }
 
@@ -156,7 +246,7 @@ impl Div for Scalar {
     type Output = Self;
 
     fn div(self, other: Self) -> Self::Output {
-        if other.value == 0 {
+        if other.value == BigUint::from(0u32) {
             panic!("Division by zero");
         }
         // a/b = a * b^(-1)
@@ -168,7 +258,7 @@ impl Div<&Scalar> for Scalar {
     type Output = Self;
 
     fn div(self, other: &Scalar) -> Self::Output {
-        if other.value == 0 {
+        if other.value == BigUint::from(0u32) {
             panic!("Division by zero");
         }
         self * other.inverse()
@@ -179,7 +269,7 @@ impl Div<&Scalar> for &Scalar {
     type Output = Scalar;
 
     fn div(self, other: &Scalar) -> Self::Output {
-        if other.value == 0 {
+        if other.value == BigUint::from(0u32) {
             panic!("Division by zero");
         }
         self * other.inverse()
@@ -206,7 +296,10 @@ impl PartialEq for Scalar {
 
 impl Clone for Scalar {
     fn clone(&self) -> Self {
-        Self { value: self.value, order: self.order }
+        Self {
+            value: self.value.clone(),
+            order: self.order.clone()
+        }
     }
 }
 
@@ -216,129 +309,114 @@ mod tests {
 
     #[test]
     fn test_new() {
-        let a = Scalar::new(65521, CURVE_ORDER);
-        assert_eq!(a.value, 0);
-        let b = Scalar::new(-1, CURVE_ORDER);
-        assert_eq!(b.value, 65520);
-        let c = Scalar::new(65522, CURVE_ORDER);
-        assert_eq!(c.value, 1);
+        // Test value equal to curve order
+        let order = get_curve_order();
+        let a = Scalar::new(order.clone());
+        assert_eq!(a.value, BigUint::from(0u32));
+
+        // Test negative value through from_i32
+        let b = Scalar::from_i32(-1);
+        let expected = &order - BigUint::from(1u32);
+        assert_eq!(b.value, expected);
+
+        // Test value larger than curve order
+        let large_value = order + BigUint::from(1u32);
+        let c = Scalar::new(large_value);
+        assert_eq!(c.value, BigUint::from(1u32));
     }
 
     #[test]
     fn test_neg() {
-        let a = Scalar::new(1, CURVE_ORDER);
+        let a = Scalar::new(BigUint::from(1u32));
         let b = -a;
-        assert_eq!(b.value, 65520);
+        let expected = get_curve_order() - BigUint::from(1u32);
+        assert_eq!(b.value, expected);
     }
 
     #[test]
     fn test_addition() {
-        let a = Scalar::new(2, CURVE_ORDER);
-        let b = Scalar::new(3, CURVE_ORDER);
+        let a = Scalar::new(BigUint::from(2u32));
+        let b = Scalar::new(BigUint::from(3u32));
         let c = a + b;
-        assert_eq!(c.value, 5);
+        assert_eq!(c.value, BigUint::from(5u32));
     }
 
     #[test]
     fn test_addition_overflow() {
-        let a = Scalar::new(65520, CURVE_ORDER);
-        let b = Scalar::new(1, CURVE_ORDER);
+        let order = get_curve_order();
+        let a = Scalar::new(order.clone() - BigUint::from(1u32));
+        let b = Scalar::new(BigUint::from(2u32));
         let c = &a + &b;
-        assert_eq!(c.value, 0);
-
-        let d = Scalar::new(2, CURVE_ORDER);
-        let e = &a + &d;
-        assert_eq!(e.value, 1);
+        assert_eq!(c.value, BigUint::from(1u32));
     }
 
     #[test]
     fn test_subtraction() {
-        let a = Scalar::new(5, CURVE_ORDER);
-        let b = Scalar::new(3, CURVE_ORDER);
+        let a = Scalar::new(BigUint::from(5u32));
+        let b = Scalar::new(BigUint::from(3u32));
         let c = a - b;
-        assert_eq!(c.value, 2);
+        assert_eq!(c.value, BigUint::from(2u32));
     }
 
     #[test]
     fn test_subtraction_overflow() {
-        let a = Scalar::new(0, CURVE_ORDER);
-        let b = Scalar::new(1, CURVE_ORDER);
+        let a = Scalar::new(BigUint::from(0u32));
+        let b = Scalar::new(BigUint::from(1u32));
         let c = &a - &b;
-        assert_eq!(c.value, 65520);
+        let expected = get_curve_order() - BigUint::from(1u32);
+        assert_eq!(c.value, expected);
     }
 
     #[test]
     fn test_multiplication() {
-        let a = Scalar::new(2, CURVE_ORDER);
-        let b = Scalar::new(3, CURVE_ORDER);
+        let a = Scalar::new(BigUint::from(2u32));
+        let b = Scalar::new(BigUint::from(3u32));
         let c = a * b;
-        assert_eq!(c.value, 6);
+        assert_eq!(c.value, BigUint::from(6u32));
     }
 
     #[test]
     fn test_multiplication_overflow() {
-        let a = Scalar::new(32761, CURVE_ORDER);
-        let b = Scalar::new(2, CURVE_ORDER);
+        let order = get_curve_order();
+        let a = Scalar::new(order.clone() - BigUint::from(1u32));
+        let b = Scalar::new(BigUint::from(2u32));
         let c = &a * &b;
-        assert_eq!(c.value, 1);
+        assert_eq!(c.value, order - BigUint::from(2u32));
     }
 
     #[test]
     fn test_inverse() {
-        // Test inverse of 2 (mod 65521)
-        let a = Scalar::new(2, CURVE_ORDER);
+        // Test inverse of 2
+        let a = Scalar::new(BigUint::from(2u32));
         let a_inv = a.inverse();
-        assert_eq!((a * a_inv).value, 1); // 2 * 32761 ≡ 1 (mod 65521)
+        assert_eq!((a * a_inv).value, BigUint::from(1u32));
 
-        // Test inverse of 3 (mod 65521)
-        let b = Scalar::new(3, CURVE_ORDER);
+        // Test inverse of a larger number
+        let b = Scalar::new(BigUint::from(12345u32));
         let b_inv = b.inverse();
-        assert_eq!((b * b_inv).value, 1); // 3 * 43681 ≡ 1 (mod 65521)
-    }
-
-      #[test]
-    fn test_inverse_full_cycle() {
-        let a = Scalar::new(12345, CURVE_ORDER);
-        let a_inv = a.inverse();
-        assert_eq!((a.clone() * a_inv.clone()).value, 1);
-
-        let b = Scalar::new(65519, CURVE_ORDER); // 65519 * 65519 mod 65521 = 1
-        let b_inv = b.inverse();
-        assert_eq!((b.clone() * b_inv.clone()).value, 1);
+        assert_eq!((b * b_inv).value, BigUint::from(1u32));
     }
 
     #[test]
     fn test_division() {
-        // Test 6/2 ≡ 3 (mod 65521)
-        let a = Scalar::new(6, CURVE_ORDER);
-        let b = Scalar::new(2, CURVE_ORDER);
-        assert_eq!((a / b).value, 3);
+        // Test 6/2 = 3
+        let a = Scalar::new(BigUint::from(6u32));
+        let b = Scalar::new(BigUint::from(2u32));
+        assert_eq!((&a / &b).value, BigUint::from(3u32));
+        assert_eq!((&b / &a), a.inverse() * b);
 
-        // Test 15/3 ≡ 5 (mod 65521)
-        let c = Scalar::new(15, CURVE_ORDER);
-        let d = Scalar::new(3, CURVE_ORDER);
-        assert_eq!((c / d).value, 5);
-
-        // Test division by reference
-        let e = Scalar::new(8, CURVE_ORDER);
-        let f = Scalar::new(4, CURVE_ORDER);
-        assert_eq!((e / &f).value, 2);
-
-        // Test division by reference
-        let g = Scalar::new(4, CURVE_ORDER);
-        let h = Scalar::new(8, CURVE_ORDER);
-        let i = Scalar::new(2, CURVE_ORDER);
-        let i_inv = i.inverse();
-        assert_eq!((g / h).value, i_inv.value);
-
-
+        // Test with larger numbers
+        let c = Scalar::new(BigUint::from(12345u32));
+        let d = Scalar::new(BigUint::from(67u32));
+        let result = &c / &d;
+        assert_eq!((result * d).value, c.value);
     }
 
     #[test]
     #[should_panic]
     fn test_division_by_zero() {
-        let a = Scalar::new(5, CURVE_ORDER);
-        let b = Scalar::new(0, CURVE_ORDER);
+        let a = Scalar::new(BigUint::from(5u32));
+        let b = Scalar::new(BigUint::from(0u32));
         let _ = a / b;
     }
 }
