@@ -135,7 +135,7 @@ impl Schnorr {
     }
 
     /// Signs a message using the Schnorr signature scheme according to BIP-340.
-    pub fn sign(&self, message: &str, aux_rand: &[u8]) -> Signature {
+    pub fn sign(&self, message: &[u8], aux_rand: &[u8]) -> Signature {
         // Compute d = d0 if has_even_y(P) else n - d0
         let d = if self.public_key.y.value() % BigUint::from(2u32) == BigUint::from(0u32) {
             self.private_key.value().clone()
@@ -144,7 +144,7 @@ impl Schnorr {
         };
 
         // Generate deterministic nonce according to BIP340
-        let k0 = compute_nonce(&d, &self.public_key, message.as_bytes(), aux_rand);
+        let k0 = compute_nonce(&d, &self.public_key, message, aux_rand);
 
         // Calculate R = k * G
         let r = self.generator.scalar_mul(&Scalar::new(k0.clone()));
@@ -157,7 +157,7 @@ impl Schnorr {
         };
 
         // Calculate e = hash(R || P || message)
-        let e = compute_challenge(&r, &self.public_key, message.as_bytes());
+        let e = compute_challenge(&r, &self.public_key, message);
 
         // Calculate s = (k + e * d) % n
         let s = (k + e * d) % get_curve_order();
@@ -169,7 +169,7 @@ impl Schnorr {
     }
 
     /// Verifies a Schnorr signature according to BIP-340.
-    pub fn verify(&self, message: &str, signature: &Signature) -> bool {
+    pub fn verify(&self, message: &[u8], signature: &Signature) -> bool {
         // Reconstruct R point from x-coordinate
         let x3 = &signature.r_x * &signature.r_x * &signature.r_x;
         let seven = FieldElement::new(BigUint::from(7u32), get_field_size());
@@ -186,7 +186,7 @@ impl Schnorr {
 
         // Calculate e * P
         let r_point = Point::new(signature.r_x.clone(), r_y, false);
-        let e_biguint = compute_challenge(&r_point, &self.public_key, message.as_bytes());
+        let e_biguint = compute_challenge(&r_point, &self.public_key, message);
         let e = Scalar::new(e_biguint);
         let e_p = self.public_key.scalar_mul(&e);
 
@@ -299,11 +299,11 @@ mod tests {
         );
 
         // Sign message
-        let sig = schnorr.sign(std::str::from_utf8(&message).unwrap(), &aux_rand);
+        let sig = schnorr.sign(&message, &aux_rand);
         assert_eq!(sig.to_bytes(), expected_sig);
 
         // Verify signature
-        assert!(schnorr.verify(std::str::from_utf8(&message).unwrap(), &sig));
+        assert!(schnorr.verify(&message, &sig));
     }
 }
 
