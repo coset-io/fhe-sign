@@ -305,6 +305,128 @@ mod tests {
         // Verify signature
         assert!(schnorr.verify(&message, &sig));
     }
+
+    #[test]
+    fn test_schnorr_vectors() {
+        // Read test vectors from CSV file
+        let csv_content = include_str!("../tests/test_vectors.csv");
+        let mut all_passed = true;
+
+        // Skip header line and process each test vector
+        for (i, line) in csv_content.lines().skip(1).enumerate() {
+            let fields: Vec<&str> = line.split(',').collect();
+            if fields.len() < 7 { continue; }
+
+            let (index, seckey_hex, pubkey_hex, aux_rand_hex, msg_hex, sig_hex, result_str) =
+                (fields[0], fields[1], fields[2], fields[3], fields[4], fields[5], fields[6]);
+            let expected_result = result_str == "TRUE";
+
+            println!("\nTest vector #{}", index);
+
+            // Parse test vector
+            let pubkey_bytes = hex::decode(pubkey_hex).unwrap();
+            let message = hex::decode(msg_hex).unwrap();
+            let expected_sig = hex::decode(sig_hex).unwrap();
+
+            if !seckey_hex.is_empty() {
+                // Test key generation and signing
+                let seckey_bytes = hex::decode(seckey_hex).unwrap();
+                let aux_rand = hex::decode(aux_rand_hex).unwrap();
+                let seckey = Scalar::new(BigUint::from_bytes_be(&seckey_bytes));
+                let schnorr = Schnorr::new(seckey.clone());
+
+                // Verify public key generation
+                let pubkey = schnorr.public_key.x.value();
+                if pubkey != &BigUint::from_bytes_be(&pubkey_bytes) {
+                    println!("Failed key generation for test vector #{}", index);
+                    println!("Expected pubkey: {}", hex::encode(pubkey_bytes).to_uppercase());
+                    println!("Actual pubkey: {}", hex::encode(bytes_from_int(pubkey)).to_uppercase());
+                    all_passed = false;
+                    continue;
+                }
+                println!("Passed key generation test");
+
+                // Test signing
+                let sig = schnorr.sign(&message, &aux_rand);
+                if sig.to_bytes() != expected_sig {
+                    println!("Failed signing test for vector #{}", index);
+                    println!("Expected sig: {}", hex::encode(&expected_sig).to_uppercase());
+                    println!("Actual sig: {}", hex::encode(&sig.to_bytes()).to_uppercase());
+                    all_passed = false;
+                    continue;
+                }
+                println!("Passed signing test");
+
+                // Test verification
+                let result = schnorr.verify(&message, &sig);
+                if result != expected_result {
+                    println!("Failed verification test for vector #{}", index);
+                    println!("Expected result: {}", expected_result);
+                    println!("Actual result: {}", result);
+                    if fields.len() > 7 {
+                        println!("Comment: {}", fields[7]);
+                    }
+                    all_passed = false;
+                    continue;
+                }
+                println!("Passed verification test");
+            } else if !pubkey_hex.is_empty() {
+                // Test only verification for vectors without secret key
+                let sig = hex::decode(sig_hex).unwrap();
+                if sig.len() != 64 {
+                    println!("Invalid signature length for test vector #{}", index);
+                    all_passed = false;
+                    continue;
+                }
+
+                let mut r_x_bytes = [0u8; 32];
+                let mut s_bytes = [0u8; 32];
+                r_x_bytes.copy_from_slice(&sig[..32]);
+                s_bytes.copy_from_slice(&sig[32..]);
+
+                let r_x = FieldElement::new(BigUint::from_bytes_be(&r_x_bytes), get_field_size());
+                let s = Scalar::new(BigUint::from_bytes_be(&s_bytes));
+                let test_sig = Signature { r_x, s };
+
+                // Create public key point
+                let pubkey_x = FieldElement::new(BigUint::from_bytes_be(&pubkey_bytes), get_field_size());
+                let x3 = &pubkey_x * &pubkey_x * &pubkey_x;
+                let seven = FieldElement::new(BigUint::from(7u32), get_field_size());
+                let y_squared = x3 + seven;
+
+                // Try to create the point, if it fails (not on curve) handle according to expected result
+                let mut y = y_squared.sqrt();
+                if y.value() % BigUint::from(2u32) == BigUint::from(1u32) {
+                    y = FieldElement::new(get_field_size() - y.value(), get_field_size());
+                }
+
+                let verify_result = std::panic::catch_unwind(|| {
+                    let pubkey_point = Point::new(pubkey_x.clone(), y.clone(), false);
+                    let schnorr = Schnorr {
+                        private_key: Scalar::new(BigUint::from(0u32)),
+                        public_key: pubkey_point,
+                        generator: Point::get_generator(),
+                    };
+                    schnorr.verify(&message, &test_sig)
+                });
+
+                let result = verify_result.is_ok() && verify_result.unwrap();
+                if result != expected_result {
+                    println!("Failed verification test for vector #{}", index);
+                    println!("Expected result: {}", expected_result);
+                    println!("Actual result: {}", result);
+                    if fields.len() > 7 {
+                        println!("Comment: {}", fields[7]);
+                    }
+                    all_passed = false;
+                    continue;
+                }
+                println!("Passed verification test");
+            }
+        }
+
+        assert!(all_passed, "Some test vectors failed");
+    }
 }
 
 
