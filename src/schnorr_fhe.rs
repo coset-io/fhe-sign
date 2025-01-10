@@ -1,9 +1,3 @@
-mod perf_test;
-mod schnorr;
-mod schnorr_btc;
-mod scalar;
-mod secp256k1;
-
 use tfhe::prelude::*;
 use sha2::{Sha256, Digest};
 use rand::Rng;

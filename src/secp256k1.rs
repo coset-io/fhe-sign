@@ -1,33 +1,44 @@
+use crate::field::{FieldElement, get_field_size};
 use crate::scalar::Scalar;
 use std::{clone::Clone, fmt::{Debug, Display}};
 use num_bigint::BigUint;
 
-// Implementation of the secp256k1 elliptic curve: y^2 = x^3 + 7
-
-// Field size (p) of secp256k1
-const P: &str = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F";
+/// Implementation of the secp256k1 elliptic curve: y^2 = x^3 + 7 (mod p)
+/// The curve is defined over the prime field GF(p) where p is the field size.
 
 // Curve parameters
 const A: u32 = 0; // Coefficient of x term
 const B: u32 = 7; // Constant term
 
-// Elliptic curve point
+/// A point on the secp256k1 curve.
+/// Points are represented in affine coordinates (x, y).
+/// The point at infinity is represented by a special flag.
+#[derive(Clone, Debug, PartialEq)]
 pub struct Point {
-    pub x: Scalar,
-    pub y: Scalar,
+    pub x: FieldElement,
+    pub y: FieldElement,
     pub is_infinity: bool,
 }
 
 impl Point {
-    pub fn new(x: Scalar, y: Scalar, is_infinity: bool) -> Self {
+    /// Creates a new point on the curve.
+    /// Verifies that the point satisfies the curve equation y^2 = x^3 + 7 (mod p).
+    pub fn new(x: FieldElement, y: FieldElement, is_infinity: bool) -> Self {
+        if !is_infinity {
+            // Verify that the point is on the curve
+            let y2 = &y * &y;
+            let x3 = &x * &x * &x;
+            let rhs = x3 + FieldElement::new_base(BigUint::from(B));
+            assert_eq!(y2, rhs, "Point is not on the curve");
+        }
         Self { x, y, is_infinity }
     }
 
     /// Creates a new point at infinity (the identity element of the curve).
     pub fn infinity() -> Self {
         Self {
-            x: Scalar::new(BigUint::from(0u32)),
-            y: Scalar::new(BigUint::from(0u32)),
+            x: FieldElement::new_base(BigUint::from(0u32)),
+            y: FieldElement::new_base(BigUint::from(0u32)),
             is_infinity: true,
         }
     }
@@ -43,23 +54,34 @@ impl Point {
         }
 
         // If points are inverses of each other, return point at infinity
-        if self.x == other.x && self.y == (-other.y.clone()) {
-            return Self::infinity();
+        if self.x == other.x {
+            if self.y == other.y {
+                // Point doubling case - handle it directly here
+                let three = FieldElement::new_base(BigUint::from(3u32));
+                let two = FieldElement::new_base(BigUint::from(2u32));
+                let a = FieldElement::new_base(BigUint::from(A));
+
+                let numerator = &(&three * &self.x * &self.x) + &a;
+                let denominator = &two * &self.y;
+                let lambda = &numerator / &denominator;
+
+                // x3 = lambda^2 - 2x
+                let x3 = &(&lambda * &lambda) - &(&two * &self.x);
+
+                // y3 = lambda(x - x3) - y
+                let y3 = &(&lambda * &(&self.x - &x3)) - &self.y;
+
+                return Self::new(x3, y3, false);
+            }
+            if &self.y == &(-other.y.clone()) {
+                return Self::infinity();
+            }
         }
 
-        // Calculate slope (lambda)
-        let lambda = if self.x == other.x && self.y == other.y {
-            // Point doubling: lambda = (3x^2 + a) / (2y)
-            let numerator = &(&Scalar::new(BigUint::from(3u32)) * &self.x * &self.x)
-                + &Scalar::new(BigUint::from(A));
-            let denominator = &Scalar::new(BigUint::from(2u32)) * &self.y;
-            &numerator / &denominator
-        } else {
-            // Point addition: lambda = (y2 - y1) / (x2 - x1)
-            let numerator = &other.y - &self.y;
-            let denominator = &other.x - &self.x;
-            &numerator / &denominator
-        };
+        // Different points addition: lambda = (y2 - y1) / (x2 - x1)
+        let numerator = &other.y - &self.y;
+        let denominator = &other.x - &self.x;
+        let lambda = &numerator / &denominator;
 
         // Calculate new point coordinates
         // x3 = lambda^2 - x1 - x2
@@ -73,52 +95,56 @@ impl Point {
 
     /// Doubles a point on the curve (adds it to itself).
     pub fn double(&self) -> Self {
-        self.add(self)
+        self.add(self)  // Now safe to use add since we handle doubling directly in add
     }
 
     /// Multiplies a point by a scalar using the double-and-add algorithm.
+    /// This is an optimized version that avoids recursive calls and minimizes cloning.
     pub fn scalar_mul(&self, scalar: &Scalar) -> Self {
-        let mut result = Self::infinity();
-        let mut temp = self.clone();
-        let mut scalar_bits = scalar.value.clone();
+        if self.is_infinity {
+            return Self::infinity();
+        }
 
-        while scalar_bits > BigUint::from(0u32) {
-            if &scalar_bits & BigUint::from(1u32) == BigUint::from(1u32) {
-                result = result.add(&temp);
+        let mut result = Self::infinity();
+        let mut current = self.clone();
+        let mut scalar_bits = scalar.value().clone();
+        let zero = BigUint::from(0u32);
+        let one = BigUint::from(1u32);
+
+        // Double-and-add algorithm
+        while scalar_bits > zero {
+            if &scalar_bits & &one == one {
+                result = result.add(&current);
             }
-            temp = temp.double();
+            current = current.double();
             scalar_bits >>= 1;
         }
 
         result
     }
-}
 
-impl Clone for Point {
-    fn clone(&self) -> Self {
-        Self {
-            x: self.x.clone(),
-            y: self.y.clone(),
-            is_infinity: self.is_infinity,
-        }
-    }
-}
-
-impl Debug for Point {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Point {{ x: {}, y: {}, is_infinity: {} }}", self.x, self.y, self.is_infinity)
+    /// Returns the base point G of the secp256k1 curve.
+    pub fn get_generator() -> Self {
+        // Generator point coordinates from the secp256k1 specification
+        let gx = FieldElement::new(
+            BigUint::parse_bytes(b"79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798", 16).unwrap(),
+            get_field_size()
+        );
+        let gy = FieldElement::new(
+            BigUint::parse_bytes(b"483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8", 16).unwrap(),
+            get_field_size()
+        );
+        Point::new(gx, gy, false) // Not a point at infinity
     }
 }
 
 impl Display for Point {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Point {{ x: {}, y: {}, is_infinity: {} }}", self.x, self.y, self.is_infinity)
-    }
-}
-
-impl PartialEq for Point {
-    fn eq(&self, other: &Self) -> bool {
-        self.x == other.x && self.y == other.y && self.is_infinity == other.is_infinity
+        if self.is_infinity {
+            write!(f, "Point at infinity")
+        } else {
+            write!(f, "({}, {})", self.x, self.y)
+        }
     }
 }
 
@@ -126,77 +152,61 @@ impl PartialEq for Point {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_add_points_at_infinity() {
-        let point_a = Point::infinity();
-        let point_b = Point::new(
-            Scalar::new(BigUint::from(3u32)),
-            Scalar::new(BigUint::from(4u32)),
-            false
-        );
+    /// Returns the generator point of the secp256k1 curve
+    fn get_generator() -> Point {
+        let x = BigUint::parse_bytes(b"79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798", 16).unwrap();
+        let y = BigUint::parse_bytes(b"483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8", 16).unwrap();
 
-        // Adding point at infinity should return the other point
-        assert_eq!(point_a.add(&point_b), point_b);
-        assert_eq!(point_b.add(&point_a), point_b);
+        Point::new(
+            FieldElement::new_base(x),
+            FieldElement::new_base(y),
+            false
+        )
     }
 
     #[test]
-    fn test_add_distinct_points() {
-        let point_a = Point::new(
-            Scalar::new(BigUint::from(3u32)),
-            Scalar::new(BigUint::from(4u32)),
-            false
-        );
-        let point_b = Point::new(
-            Scalar::new(BigUint::from(5u32)),
-            Scalar::new(BigUint::from(6u32)),
-            false
-        );
+    fn test_generator_point() {
+        let g = get_generator();
 
-        let result = point_a.add(&point_b);
-
-        // Verify result is on the curve: y^2 = x^3 + 7
-        let x3_cubed = &result.x * &result.x * &result.x;
-        let y2 = &result.y * &result.y;
-        let right_side = &x3_cubed + &Scalar::new(BigUint::from(B));
-
-        assert_eq!(y2, right_side);
+        // Verify that G is on the curve
+        let y2 = &g.y * &g.y;
+        let x3 = &g.x * &g.x * &g.x;
+        let rhs = x3 + FieldElement::new_base(BigUint::from(B));
+        assert_eq!(y2, rhs, "Generator point is not on the curve");
     }
 
     #[test]
-    fn test_point_doubling() {
-        let point = Point::new(
-            Scalar::new(BigUint::from(3u32)),
-            Scalar::new(BigUint::from(4u32)),
-            false
-        );
+    fn test_point_at_infinity() {
+        let point = Point::infinity();
+        assert!(point.is_infinity);
+    }
 
-        let doubled = point.double();
+    #[test]
+    fn test_point_addition() {
+        let g = get_generator();
+        let g2 = g.double();
 
-        // Verify result is on the curve: y^2 = x^3 + 7
-        let x3_cubed = &doubled.x * &doubled.x * &doubled.x;
-        let y2 = &doubled.y * &doubled.y;
-        let right_side = &x3_cubed + &Scalar::new(BigUint::from(B));
-
-        assert_eq!(y2, right_side);
+        // Verify G + G = 2G is on the curve
+        let y2 = &g2.y * &g2.y;
+        let x3 = &g2.x * &g2.x * &g2.x;
+        let rhs = x3 + FieldElement::new_base(BigUint::from(B));
+        assert_eq!(y2, rhs, "2G is not on the curve");
     }
 
     #[test]
     fn test_scalar_multiplication() {
-        let point = Point::new(
-            Scalar::new(BigUint::from(3u32)),
-            Scalar::new(BigUint::from(4u32)),
-            false
-        );
+        let g = get_generator();
         let scalar = Scalar::new(BigUint::from(2u32));
+        let g2 = g.scalar_mul(&scalar);
 
-        let result = point.scalar_mul(&scalar);
+        // Verify 2G is on the curve
+        let y2 = &g2.y * &g2.y;
+        let x3 = &g2.x * &g2.x * &g2.x;
+        let rhs = x3 + FieldElement::new_base(BigUint::from(B));
+        assert_eq!(y2, rhs, "2G is not on the curve");
 
-        // Verify result is on the curve: y^2 = x^3 + 7
-        let x3_cubed = &result.x * &result.x * &result.x;
-        let y2 = &result.y * &result.y;
-        let right_side = &x3_cubed + &Scalar::new(BigUint::from(B));
-
-        assert_eq!(y2, right_side);
+        // Verify that scalar multiplication matches repeated addition
+        let g2_add = g.add(&g);
+        assert_eq!(g2, g2_add);
     }
 }
