@@ -4,3 +4,4 @@ pub mod secp256k1;
 pub mod schnorr;
 pub mod perf_test;
 pub mod schnorr_fhe;
+pub mod biguint;
