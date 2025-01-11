@@ -29,7 +29,10 @@ impl Point {
             let y2 = &y * &y;
             let x3 = &x * &x * &x;
             let rhs = x3 + new_base_field(BigUint::from(B));
-            assert_eq!(y2, rhs, "Point is not on the curve");
+            if y2 != rhs {
+                println!("Point is not on the curve");
+                return Self::infinity();
+            }
         }
         Self { x, y, is_infinity }
     }
@@ -187,7 +190,7 @@ mod tests {
     fn get_generator() -> Point {
         let x = BigUint::parse_bytes(b"79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798", 16).unwrap();
         let y = BigUint::parse_bytes(b"483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8", 16).unwrap();
-        
+
         Point::new(
             new_base_field(x),
             new_base_field(y),
@@ -198,7 +201,7 @@ mod tests {
     #[test]
     fn test_generator_point() {
         let g = get_generator();
-        
+
         // Verify that G is on the curve
         let y2 = &g.y * &g.y;
         let x3 = &g.x * &g.x * &g.x;
@@ -216,7 +219,7 @@ mod tests {
     fn test_point_addition() {
         let g = get_generator();
         let g2 = g.double();
-        
+
         // Verify G + G = 2G is on the curve
         let y2 = &g2.y * &g2.y;
         let x3 = &g2.x * &g2.x * &g2.x;
@@ -229,13 +232,13 @@ mod tests {
         let g = get_generator();
         let scalar = Scalar::new(BigUint::from(2u32));
         let g2 = g.scalar_mul(&scalar);
-        
+
         // Verify 2G is on the curve
         let y2 = &g2.y * &g2.y;
         let x3 = &g2.x * &g2.x * &g2.x;
         let rhs = x3 + new_base_field(BigUint::from(B));
         assert_eq!(y2, rhs, "2G is not on the curve");
-        
+
         // Verify that scalar multiplication matches repeated addition
         let g2_add = g.add(&g);
         assert_eq!(g2, g2_add);

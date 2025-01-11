@@ -85,6 +85,18 @@ pub fn compute_challenge(r: &Point, pubkey: &Point, message: &[u8]) -> BigUint {
     int_from_bytes(&tagged_hash(CHALLENGE_TAG, &challenge_input)) % get_curve_order()
 }
 
+pub fn lift_x(x: &FieldElement) -> Point {
+    if x.value() >= &get_curve_order() {
+        return Point::infinity();
+    }
+    let y_squared = x.pow(&BigUint::from(3u32)) + FieldElement::new(BigUint::from(7u32), x.order().clone());
+    let mut y = y_squared.sqrt();
+    if y.value() % BigUint::from(2u32) == BigUint::from(1u32) {
+        y = FieldElement::new(x.order().clone() - y.value(), x.order().clone());
+    }
+    Point::new(x.clone(), y, false)
+}
+
 /// Represents a Schnorr signature according to BIP-340
 #[derive(Debug, Clone, PartialEq)]
 pub struct Signature {
@@ -106,7 +118,6 @@ impl Signature {
 pub struct Schnorr {
     private_key: Scalar,
     public_key: Point,
-    generator: Point, // The base point G
 }
 
 impl Schnorr {
@@ -131,7 +142,7 @@ impl Schnorr {
             (public_key, private_key)
         };
 
-        Self { private_key: d, public_key: pk, generator }
+        Self { private_key: d, public_key: pk }
     }
 
     /// Signs a message using the Schnorr signature scheme according to BIP-340.
@@ -147,7 +158,8 @@ impl Schnorr {
         let k0 = compute_nonce(&d, &self.public_key, message, aux_rand);
 
         // Calculate R = k * G
-        let r = self.generator.scalar_mul(&Scalar::new(k0.clone()));
+        let generator = Point::get_generator();
+        let r = generator.scalar_mul(&Scalar::new(k0.clone()));
 
         // k = n - k0 if not has_even_y(R) else k0
         let k = if r.y.value() % BigUint::from(2u32) == BigUint::from(1u32) {
@@ -169,9 +181,19 @@ impl Schnorr {
     }
 
     /// Verifies a Schnorr signature according to BIP-340.
-    pub fn verify(&self, message: &[u8], signature: &Signature) -> bool {
+    pub fn verify(message: &[u8], pubkey_bytes: &[u8], sig_bytes: &[u8]) -> bool {
+        if pubkey_bytes.len() != 32 {
+            return false;
+        }
+        if sig_bytes.len() != 64 {
+            return false;
+        }
+        let sig = Signature {
+            r_x: FieldElement::new(BigUint::from_bytes_be(&sig_bytes[0..32]), get_field_size()),
+            s: Scalar::new(BigUint::from_bytes_be(&sig_bytes[32..64])),
+        };
         // Reconstruct R point from x-coordinate
-        let x3 = &signature.r_x * &signature.r_x * &signature.r_x;
+        let x3 = &sig.r_x * &sig.r_x * &sig.r_x;
         let seven = FieldElement::new(BigUint::from(7u32), get_field_size());
         let r_y_squared = x3 + seven;
 
@@ -180,19 +202,29 @@ impl Schnorr {
         if r_y.value() % BigUint::from(2u32) == BigUint::from(1u32) {
             r_y = FieldElement::new(get_field_size() - r_y.value(), get_field_size());
         }
-
         // Calculate s * G
-        let s_g = self.generator.scalar_mul(&signature.s);
+        let generator = Point::get_generator();
+        let s_g = generator.scalar_mul(&sig.s);
 
         // Calculate e * P
-        let r_point = Point::new(signature.r_x.clone(), r_y, false);
-        let e_biguint = compute_challenge(&r_point, &self.public_key, message);
+        let pubkey = FieldElement::new(BigUint::from_bytes_be(&pubkey_bytes), get_field_size());
+        let pubkey_point = lift_x(&pubkey);
+        let r_point = Point::new(sig.r_x.clone(), r_y, false);
+        let e_biguint = compute_challenge(&r_point, &pubkey_point, message);
         let e = Scalar::new(e_biguint);
-        let e_p = self.public_key.scalar_mul(&e);
-
+        let e_p = pubkey_point.scalar_mul(&e);
+        //     if (P is None) or (r >= p) or (s >= n): return False
+        if pubkey_point.is_infinity || r_point.x.value() >= &get_curve_order() || sig.s.value() >= &get_curve_order() {
+            return false;
+        }
         // Check that s * G = R + e * P by comparing x-coordinates
         let r_computed = s_g - e_p;
-        r_computed.x == signature.r_x
+        // if (R is None) or (not has_even_y(R)) or (x(R) != r)
+        if r_computed.is_infinity || r_computed.y.value() % BigUint::from(2u32) == BigUint::from(1u32) || r_computed.x.value() != sig.r_x.value() {
+            return false;
+        }
+
+        true
     }
 }
 
@@ -303,7 +335,7 @@ mod tests {
         assert_eq!(sig.to_bytes(), expected_sig);
 
         // Verify signature
-        assert!(schnorr.verify(&message, &sig));
+        assert!(Schnorr::verify(&message, &schnorr.public_key.x.value().to_bytes_be(), &expected_sig));
     }
 
     #[test]
@@ -327,7 +359,10 @@ mod tests {
             let pubkey_bytes = hex::decode(pubkey_hex).unwrap();
             let message = hex::decode(msg_hex).unwrap();
             let expected_sig = hex::decode(sig_hex).unwrap();
-
+            // pubkey = bytes.fromhex(pubkey_hex)
+            // msg = bytes.fromhex(msg_hex)
+            // sig = bytes.fromhex(sig_hex)
+            // result = result_str == 'TRUE'
             if !seckey_hex.is_empty() {
                 // Test key generation and signing
                 let seckey_bytes = hex::decode(seckey_hex).unwrap();
@@ -336,11 +371,11 @@ mod tests {
                 let schnorr = Schnorr::new(seckey.clone());
 
                 // Verify public key generation
-                let pubkey = schnorr.public_key.x.value();
-                if pubkey != &BigUint::from_bytes_be(&pubkey_bytes) {
+                let pubkey_actual = schnorr.public_key.x.value();
+                if pubkey_actual != &BigUint::from_bytes_be(&pubkey_bytes) {
                     println!("Failed key generation for test vector #{}", index);
                     println!("Expected pubkey: {}", hex::encode(pubkey_bytes).to_uppercase());
-                    println!("Actual pubkey: {}", hex::encode(bytes_from_int(pubkey)).to_uppercase());
+                    println!("Actual pubkey: {}", hex::encode(bytes_from_int(pubkey_actual)).to_uppercase());
                     all_passed = false;
                     continue;
                 }
@@ -356,73 +391,22 @@ mod tests {
                     continue;
                 }
                 println!("Passed signing test");
-
-                // Test verification
-                let result = schnorr.verify(&message, &sig);
-                if result != expected_result {
-                    println!("Failed verification test for vector #{}", index);
-                    println!("Expected result: {}", expected_result);
-                    println!("Actual result: {}", result);
-                    if fields.len() > 7 {
-                        println!("Comment: {}", fields[7]);
-                    }
-                    all_passed = false;
-                    continue;
-                }
-                println!("Passed verification test");
-            } else if !pubkey_hex.is_empty() {
-                // Test only verification for vectors without secret key
-                let sig = hex::decode(sig_hex).unwrap();
-                if sig.len() != 64 {
-                    println!("Invalid signature length for test vector #{}", index);
-                    all_passed = false;
-                    continue;
-                }
-
-                let mut r_x_bytes = [0u8; 32];
-                let mut s_bytes = [0u8; 32];
-                r_x_bytes.copy_from_slice(&sig[..32]);
-                s_bytes.copy_from_slice(&sig[32..]);
-
-                let r_x = FieldElement::new(BigUint::from_bytes_be(&r_x_bytes), get_field_size());
-                let s = Scalar::new(BigUint::from_bytes_be(&s_bytes));
-                let test_sig = Signature { r_x, s };
-
-                // Create public key point
-                let pubkey_x = FieldElement::new(BigUint::from_bytes_be(&pubkey_bytes), get_field_size());
-                let x3 = &pubkey_x * &pubkey_x * &pubkey_x;
-                let seven = FieldElement::new(BigUint::from(7u32), get_field_size());
-                let y_squared = x3 + seven;
-
-                // Try to create the point, if it fails (not on curve) handle according to expected result
-                let mut y = y_squared.sqrt();
-                if y.value() % BigUint::from(2u32) == BigUint::from(1u32) {
-                    y = FieldElement::new(get_field_size() - y.value(), get_field_size());
-                }
-
-                let verify_result = std::panic::catch_unwind(|| {
-                    let pubkey_point = Point::new(pubkey_x.clone(), y.clone(), false);
-                    let schnorr = Schnorr {
-                        private_key: Scalar::new(BigUint::from(0u32)),
-                        public_key: pubkey_point,
-                        generator: Point::get_generator(),
-                    };
-                    schnorr.verify(&message, &test_sig)
-                });
-
-                let result = verify_result.is_ok() && verify_result.unwrap();
-                if result != expected_result {
-                    println!("Failed verification test for vector #{}", index);
-                    println!("Expected result: {}", expected_result);
-                    println!("Actual result: {}", result);
-                    if fields.len() > 7 {
-                        println!("Comment: {}", fields[7]);
-                    }
-                    all_passed = false;
-                    continue;
-                }
-                println!("Passed verification test");
             }
+
+            // Test verification
+            let result = Schnorr::verify(&message, &pubkey_bytes, &expected_sig);
+
+            if result != expected_result {
+                println!("Failed verification test for vector #{}", index);
+                println!("Expected result: {}", expected_result);
+                println!("Actual result: {}", result);
+                if fields.len() > 7 {
+                    println!("Comment: {}", fields[7]);
+                }
+                all_passed = false;
+                continue;
+            }
+            println!("Passed verification test");
         }
 
         assert!(all_passed, "Some test vectors failed");
