@@ -4,6 +4,8 @@ use crate::field::FieldElement;
 use crate::secp256k1::Point;
 use std::ops::Sub;
 use num_bigint::BigUint;
+use tfhe::prelude::*;
+use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint32, FheUint64, ClientKey, FheBool, CompressedServerKey};
 
 /// BIP-340 tag constants for domain separation
 const AUX_TAG: &[u8] = b"BIP0340/aux";
@@ -84,6 +86,76 @@ impl Schnorr {
             r_x: r.x,
             s: Scalar::new(s),
         }
+    }
+
+    /// Signs a message using the Schnorr signature scheme according to BIP-340 with FHE.
+    pub fn sign_fhe(&self, message: &[u8], aux_rand: &[u8], client_key: &ClientKey) -> Result<Signature, tfhe::Error> {
+        let (pubkey, d) = self.get_public_key();
+
+        // Generate deterministic nonce k0 according to BIP-340
+        let k0 = compute_nonce(d.value(), &pubkey, message, aux_rand);
+        let generator = Point::get_generator();
+        let r = generator.scalar_mul(&Scalar::new(k0.clone()));
+
+        // Adjust k based on R's y-coordinate parity
+        let k = if r.y.value() % BigUint::from(2u32) == BigUint::from(1u32) {
+            get_curve_order() - k0
+        } else {
+            k0
+        };
+
+        // Compute challenge e = hash(R || P || message)
+        let e = compute_challenge(&r, &pubkey, message);
+
+        // Convert to u64 values with modular reduction
+        let curve_order_u64 = (u64::MAX / 2) + 1;
+        let d_bytes = (d.value() % BigUint::from(curve_order_u64)).to_bytes_be();
+        let k_bytes = (k % BigUint::from(curve_order_u64)).to_bytes_be();
+        let e_bytes = (e % BigUint::from(curve_order_u64)).to_bytes_be();
+
+        let d_u64 = if d_bytes.len() >= 8 {
+            u64::from_be_bytes(d_bytes[d_bytes.len()-8..].try_into().unwrap())
+        } else {
+            let mut bytes = [0u8; 8];
+            bytes[8-d_bytes.len()..].copy_from_slice(&d_bytes);
+            u64::from_be_bytes(bytes)
+        };
+
+        let k_u64 = if k_bytes.len() >= 8 {
+            u64::from_be_bytes(k_bytes[k_bytes.len()-8..].try_into().unwrap())
+        } else {
+            let mut bytes = [0u8; 8];
+            bytes[8-k_bytes.len()..].copy_from_slice(&k_bytes);
+            u64::from_be_bytes(bytes)
+        };
+
+        let e_u64 = if e_bytes.len() >= 8 {
+            u64::from_be_bytes(e_bytes[e_bytes.len()-8..].try_into().unwrap())
+        } else {
+            let mut bytes = [0u8; 8];
+            bytes[8-e_bytes.len()..].copy_from_slice(&e_bytes);
+            u64::from_be_bytes(bytes)
+        };
+
+        // Encrypt values
+        let d_encrypted = FheUint64::encrypt(d_u64, client_key);
+        let k_encrypted = FheUint64::encrypt(k_u64, client_key);
+        let e_encrypted = FheUint64::encrypt(e_u64, client_key);
+
+        // Compute s = (k + e * d) % n in encrypted form
+        let ed_encrypted = e_encrypted * d_encrypted;
+        let s_encrypted = k_encrypted + ed_encrypted;
+        let s_u64: u64 = s_encrypted.decrypt(client_key);
+
+        // Convert back to field element and reduce modulo n
+        let s_bytes = s_u64.to_be_bytes();
+        let s = BigUint::from_bytes_be(&s_bytes);
+        let s = s % get_curve_order();
+
+        Ok(Signature {
+            r_x: r.x,
+            s: Scalar::new(s),
+        })
     }
 
     /// Verifies a Schnorr signature according to BIP-340.
@@ -208,6 +280,32 @@ mod tests {
     use hex;
 
     #[test]
+    fn test_schnorr_fhe() {
+        let config = ConfigBuilder::default().build();
+        let (client_key, server_keys) = generate_keys(config);
+        set_server_key(server_keys);
+
+        // Test vector from BIP-340
+        let seckey_bytes = hex::decode("0000000000000000000000000000000000000000000000000000000000000003").unwrap();
+        let message = hex::decode("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+        let aux_rand = hex::decode("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+        let expected_sig = hex::decode("E907831F80848D1069A5371B402410364BDF1C5F8307B0084C55F1CE2DCA821525F66A4A85EA8B71E482A74F382D2CE5EBEEE8FDB2172F477DF4900D310536C0").unwrap();
+
+        let seckey = Scalar::new(BigUint::from_bytes_be(&seckey_bytes));
+        let schnorr = Schnorr::new(seckey);
+        let sig = schnorr.sign(&message, &aux_rand);
+        let (pubkey, _) = schnorr.get_public_key();
+
+        assert_eq!(sig.to_bytes(), expected_sig);
+        assert!(Schnorr::verify(&message, &pubkey.x.value().to_bytes_be(), &expected_sig));
+
+        let sig_fhe = schnorr.sign_fhe(&message, &aux_rand, &client_key);
+        assert!(sig_fhe.is_ok());
+        let sig_fhe = sig_fhe.unwrap();
+        assert_eq!(sig_fhe.to_bytes(), expected_sig);
+        assert!(Schnorr::verify(&message, &pubkey.x.value().to_bytes_be(), &expected_sig));
+    }
+
     fn test_schnorr_bip340() {
         // Test vector from BIP-340
         let seckey_bytes = hex::decode("0000000000000000000000000000000000000000000000000000000000000003").unwrap();
