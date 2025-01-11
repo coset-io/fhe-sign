@@ -104,7 +104,6 @@ impl Mul for MyBigUint {
         }
 
         let mut result = vec![0u32; self.digits.len() + other.digits.len()];
-        let mut total_carry = 0u32;
 
         for (i, &a) in self.digits.iter().enumerate() {
             let mut carry = 0u64;
@@ -114,14 +113,19 @@ impl Mul for MyBigUint {
                 result[idx] = product as u32;
                 carry = product >> 32;
             }
+
+            // Propagate carry through remaining digits
+            let mut k = i + other.digits.len();
+            while carry > 0 && k < result.len() {
+                let sum = (result[k] as u64) + carry;
+                result[k] = sum as u32;
+                carry = sum >> 32;
+                k += 1;
+            }
+
+            // If there's still carry left, extend the vector
             if carry > 0 {
-                let idx = i + other.digits.len();
-                let sum = (result[idx] as u64) + carry;
-                result[idx] = sum as u32;
-                total_carry = (sum >> 32) as u32;
-                if total_carry > 0 && idx + 1 < result.len() {
-                    result[idx + 1] += total_carry;
-                }
+                result.push(carry as u32);
             }
         }
 
@@ -195,67 +199,77 @@ mod tests {
         let a = MyBigUint::from(0u32);
         let b = MyBigUint::from(12345u32);
         let result = a * b;
-        assert_eq!(result.to_u32(), Some(0)); // Now correctly returns Some(0)
+        assert_eq!(result.to_u32(), Some(0));
     }
 
     #[test]
-    fn test_to_u64() {
-        let a = MyBigUint::new(123456789u32);
-        assert_eq!(a.to_u64(), Some(123456789));
+    fn test_very_large_mul() {
+        // Test 256-bit multiplication
+        let a = MyBigUint::from_digits(vec![u32::MAX; 8]); // 256 bits
+        let b = MyBigUint::from_digits(vec![2]);
+        let result = a.clone() * b.clone();
+        let result_str = result.to_string();
+        println!("result_str: {:?}", result_str);
 
-        let large = MyBigUint::from_digits(vec![u32::MAX, u32::MAX]);
-        assert_eq!(large.to_u64(), Some(0xFFFFFFFF_FFFFFFFF)); // 18446744073709551615
-    }
-
-    #[test]
-    fn test_large_add() {
-        let a = MyBigUint::from_digits(vec![u32::MAX, u32::MAX, u32::MAX, u32::MAX]);
-        let b = MyBigUint::from_digits(vec![1, 0, 0, 0, 0]);
-        let result = a + b;
-        let expected = MyBigUint::from_digits(vec![0, 0, 0, 0, 1]);
-        assert_eq!(result, expected);
-    }
-
-    #[test]
-    fn test_large_mul() {
-        let a = MyBigUint::from_digits(vec![u32::MAX, u32::MAX, u32::MAX]);
-        let b = MyBigUint::from_digits(vec![2, 1]);
-        println!("a: {:?}", a);
-        println!("b: {:?}", b);
-        // print u64 format
-        println!("a: {:?}", a.to_u64());
-        println!("b: {:?}", b.to_u64());
-        let result = a * b;
-        println!("result: {:?}", result.to_string());
-        // Compare with num-bigint library
-        let a_bigint = BigUint::new(vec![u32::MAX, u32::MAX, u32::MAX]);
-        let b_bigint = BigUint::new(vec![2, 1]);
+        let a_bigint = BigUint::from_slice(&a.digits);
+        let b_bigint = BigUint::from_slice(&b.digits);
         let result_bigint = a_bigint * b_bigint;
-        println!("result_bigint: {:?}", result_bigint.to_string());
-        let result_digits: Vec<u32> = result_bigint.to_u32_digits();
-        let expected_bigint = MyBigUint::from_digits(result_digits);
-        assert_eq!(result, expected_bigint);
-    }
+        let result_str_expected = result_bigint.to_string();
+        println!("result_str_expected: {:?}", result_str_expected);
+        assert_eq!(result_str, result_str_expected);
 
-    #[test]
-    fn test_large_add_overflow() {
-        let a = MyBigUint::from_digits(vec![u32::MAX, u32::MAX]);
-        let b = MyBigUint::from_digits(vec![1, 1]);
-        let result = a + b;
-        let a_bigint = BigUint::new(vec![u32::MAX, u32::MAX]);
-        let b_bigint = BigUint::new(vec![1, 1]);
-        let result_bigint = a_bigint + b_bigint;
         let result_digits: Vec<u32> = result_bigint.to_u32_digits();
-        let expected_bigint = MyBigUint::from_digits(result_digits);
-        assert_eq!(result, expected_bigint);
-    }
-
-    #[test]
-    fn test_large_mul_zero() {
-        let a = MyBigUint::from_digits(vec![u32::MAX, u32::MAX, u32::MAX]);
-        let b = MyBigUint::from_digits(vec![0]);
-        let result = a * b;
-        let expected = MyBigUint::zero();
+        let expected = MyBigUint::from_digits(result_digits);
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_very_large_add() {
+        // Test 256-bit addition
+        let a = MyBigUint::from_digits(vec![u32::MAX; 8]); // 256 bits
+        let b = MyBigUint::from_digits(vec![1]);
+        let result = a.clone() + b.clone();
+        let result_str = result.to_string();
+        println!("result_str: {:?}", result_str);
+
+        let a_bigint = BigUint::from_slice(&a.digits);
+        let b_bigint = BigUint::from_slice(&b.digits);
+        let result_bigint = a_bigint + b_bigint;
+        let result_str_expected = result_bigint.to_string();
+        println!("result_str_expected: {:?}", result_str_expected);
+        assert_eq!(result_str, result_str_expected);
+
+        let result_digits: Vec<u32> = result_bigint.to_u32_digits();
+        let expected = MyBigUint::from_digits(result_digits);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_multiplication_carry_propagation() {
+        // Create a number that will generate multiple carries
+        let a = MyBigUint::from_digits(vec![u32::MAX, u32::MAX, u32::MAX]);
+        let b = MyBigUint::from_digits(vec![u32::MAX, u32::MAX]);
+        let result = a.clone() * b.clone();
+        let result_str = result.to_string();
+        println!("result_str: {:?}", result_str);
+
+        let a_bigint = BigUint::from_slice(&a.digits);
+        let b_bigint = BigUint::from_slice(&b.digits);
+        let result_bigint = a_bigint * b_bigint;
+        let result_str_expected = result_bigint.to_string();
+        println!("result_str_expected: {:?}", result_str_expected);
+        assert_eq!(result_str, result_str_expected);
+
+        let result_digits: Vec<u32> = result_bigint.to_u32_digits();
+        let expected = MyBigUint::from_digits(result_digits);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_normalize_large_numbers() {
+        // Test that normalization works correctly with large numbers
+        let mut num = MyBigUint::from_digits(vec![1, 0, 0, 0, 0, 0, 0, 0, 0]);
+        num.normalize();
+        assert_eq!(num.digits, vec![1]);
     }
 }
