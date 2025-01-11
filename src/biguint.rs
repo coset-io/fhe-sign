@@ -29,7 +29,7 @@ impl MyBigUint {
     }
 
     /// Creates a BigUint from a vector of u32 digits
-    pub fn from_digits(mut digits: Vec<u32>) -> Self {
+    pub fn from_digits(digits: Vec<u32>) -> Self {
         let mut result = Self { digits };
         result.normalize();
         result
@@ -55,26 +55,6 @@ impl MyBigUint {
         }
     }
 
-    /// Converts the MyBigUint to an i64.
-    /// Returns `Some(i64)` if it fits, otherwise `None`.
-    pub fn to_i64(&self) -> Option<i64> {
-        match self.digits.len() {
-            0 => Some(0),
-            1 => self.digits.get(0).cloned().map(|d| d as i64),
-            2 => {
-                let low = self.digits.get(0).cloned().unwrap_or(0) as u64;
-                let high = self.digits.get(1).cloned().unwrap_or(0) as u64;
-                let combined = low | (high << 32);
-                if combined <= i64::MAX as u64 {
-                    Some(combined as i64)
-                } else {
-                    None
-                }
-            },
-            _ => None,
-        }
-    }
-
     /// Converts the MyBigUint to a u64.
     /// Returns `Some(u64)` if it fits, otherwise `None`.
     pub fn to_u64(&self) -> Option<u64> {
@@ -89,8 +69,6 @@ impl MyBigUint {
             _ => None,
         }
     }
-
-    // Add other conversion methods as needed...
 }
 
 impl Add for MyBigUint {
@@ -218,15 +196,6 @@ mod tests {
         let b = MyBigUint::from(12345u32);
         let result = a * b;
         assert_eq!(result.to_u32(), Some(0)); // Now correctly returns Some(0)
-    }
-
-    #[test]
-    fn test_to_i64() {
-        let a = MyBigUint::new(123456789u32);
-        assert_eq!(a.to_i64(), Some(123456789));
-
-        let large = MyBigUint::from_digits(vec![u32::MAX, u32::MAX]);
-        assert_eq!(large.to_i64(), None); // Exceeds i64::MAX
     }
 
     #[test]
