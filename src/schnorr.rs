@@ -30,44 +30,40 @@ impl Signature {
 /// The Schnorr signature scheme implementation following BIP-340
 pub struct Schnorr {
     private_key: Scalar,
-    public_key: Point,
 }
 
 impl Schnorr {
     /// Creates a new Schnorr instance with the given private key.
-    /// Computes public key as P = private_key * G with BIP-340 y-coordinate conventions
     pub fn new(private_key: Scalar) -> Self {
+        Self { private_key }
+    }
+
+    /// Gets the public key with BIP-340 y-coordinate conventions
+    fn get_public_key(&self) -> (Point, Scalar) {
         let generator = Point::get_generator();
-        let public_key = generator.scalar_mul(&private_key);
+        let public_key = generator.scalar_mul(&self.private_key);
 
         // Ensure the public key has an even y-coordinate as per BIP-340
-        let (pk, d) = if public_key.y.value() % BigUint::from(2u32) == BigUint::from(1u32) {
+        if public_key.y.value() % BigUint::from(2u32) == BigUint::from(1u32) {
             (
                 Point::new(
                     public_key.x.clone(),
                     FieldElement::new(get_field_size() - public_key.y.value(), get_field_size()),
                     false
                 ),
-                Scalar::new(get_curve_order() - private_key.value())
+                Scalar::new(get_curve_order() - self.private_key.value())
             )
         } else {
-            (public_key, private_key)
-        };
-
-        Self { private_key: d, public_key: pk }
+            (public_key, self.private_key.clone())
+        }
     }
 
     /// Signs a message using the Schnorr signature scheme according to BIP-340.
     pub fn sign(&self, message: &[u8], aux_rand: &[u8]) -> Signature {
-        // Compute private key based on y-coordinate parity
-        let d = if self.public_key.y.value() % BigUint::from(2u32) == BigUint::from(0u32) {
-            self.private_key.value().clone()
-        } else {
-            get_curve_order() - self.private_key.value()
-        };
+        let (pubkey, d) = self.get_public_key();
 
         // Generate deterministic nonce k0 according to BIP-340
-        let k0 = compute_nonce(&d, &self.public_key, message, aux_rand);
+        let k0 = compute_nonce(d.value(), &pubkey, message, aux_rand);
         let generator = Point::get_generator();
         let r = generator.scalar_mul(&Scalar::new(k0.clone()));
 
@@ -79,10 +75,10 @@ impl Schnorr {
         };
 
         // Compute challenge e = hash(R || P || message)
-        let e = compute_challenge(&r, &self.public_key, message);
+        let e = compute_challenge(&r, &pubkey, message);
 
         // Compute s = (k + e * d) % n
-        let s = (k + e * d) % get_curve_order();
+        let s = (k + e * d.value()) % get_curve_order();
 
         Signature {
             r_x: r.x,
@@ -222,9 +218,10 @@ mod tests {
         let seckey = Scalar::new(BigUint::from_bytes_be(&seckey_bytes));
         let schnorr = Schnorr::new(seckey);
         let sig = schnorr.sign(&message, &aux_rand);
+        let (pubkey, _) = schnorr.get_public_key();
 
         assert_eq!(sig.to_bytes(), expected_sig);
-        assert!(Schnorr::verify(&message, &schnorr.public_key.x.value().to_bytes_be(), &expected_sig));
+        assert!(Schnorr::verify(&message, &pubkey.x.value().to_bytes_be(), &expected_sig));
     }
 
     #[test]
