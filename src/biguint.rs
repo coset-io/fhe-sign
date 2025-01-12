@@ -104,9 +104,9 @@ impl BigUintFHE {
         }
     }
 
-    /// Extract carry from a sum
-    fn extract_carry(sum: &FheUint64) -> FheUint32 {
-        // Right shift by 32 bits to get the carry
+    /// Extract upper 32 bits from a sum
+    fn extract_upper_bits(sum: &FheUint64) -> FheUint32 {
+        // Right shift by 32 bits to get the upper bits
         FheUint32::cast_from(sum >> 32u64)
     }
 
@@ -216,17 +216,18 @@ impl Mul for BigUintFHE {
                 let start_iter = Instant::now();
                 let idx = i + j;
 
-                let start_decrypt = Instant::now();
                 let a32_clear: u32 = a.decrypt(&self.client_key);
                 let b32_clear: u32 = b.decrypt(&self.client_key);
                 let product_clear = a32_clear as u64 * b32_clear as u64;
-                println!("Decrypt time: {:?}", start_decrypt.elapsed());
+                let start_mul = Instant::now();
+                // Convert to FheUint64 for multiplication
+                println!("Multiplication time: {:?}", start_mul.elapsed());
 
                 // Split product into lower and upper 32 bits
-                let start_encrypt = Instant::now();
-                let lower = FheUint32::try_encrypt((product_clear & 0xFFFFFFFF) as u32, &self.client_key).unwrap();
-                let upper = FheUint32::try_encrypt((product_clear >> 32) as u32, &self.client_key).unwrap();
-                println!("Encrypt time: {:?}", start_encrypt.elapsed());
+                let start_split = Instant::now();
+                let lower = BigUintFHE::extract_lower_bits(&product);
+                let upper = BigUintFHE::extract_upper_bits(&product);
+                println!("Split time: {:?}", start_split.elapsed());
 
                 let start_add = Instant::now();
                 // Add lower part and handle potential carry
@@ -238,13 +239,13 @@ impl Mul for BigUintFHE {
                 // Add upper part plus any carry from lower addition
                 let next_pos = FheUint64::cast_from(result[idx + 1].clone());
                 let upper64 = FheUint64::cast_from(upper);
-                let carry64 = FheUint64::cast_from(BigUintFHE::extract_carry(&sum));
+                let carry64 = FheUint64::cast_from(BigUintFHE::extract_upper_bits(&sum));
                 let sum = next_pos + upper64 + carry64;
                 result[idx + 1] = BigUintFHE::extract_lower_bits(&sum);
 
                 // Handle potential new carry
                 if idx + 2 < result.len() {
-                    result[idx + 2] = result[idx + 2].clone() + BigUintFHE::extract_carry(&sum);
+                    result[idx + 2] = result[idx + 2].clone() + BigUintFHE::extract_upper_bits(&sum);
                 }
                 println!("Addition time: {:?}", start_add.elapsed());
 
@@ -435,7 +436,7 @@ mod tests {
         let num2 = FheUint64::try_encrypt(3u64, &client_key).unwrap();
         let sum = num1 + num2;  // 8
 
-        let carry = BigUintFHE::extract_carry(&sum);
+        let carry = BigUintFHE::extract_upper_bits(&sum);
         let lower = BigUintFHE::extract_lower_bits(&sum);
 
         assert_eq!(FheDecrypt::<u32>::decrypt(&carry, &client_key), 0u32);
@@ -446,7 +447,7 @@ mod tests {
         let one = FheUint64::try_encrypt(1u64, &client_key).unwrap();
         let sum_with_carry = max + one;  // 0x100000000
 
-        let carry = BigUintFHE::extract_carry(&sum_with_carry);
+        let carry = BigUintFHE::extract_upper_bits(&sum_with_carry);
         let lower = BigUintFHE::extract_lower_bits(&sum_with_carry);
 
         assert_eq!(FheDecrypt::<u32>::decrypt(&carry, &client_key), 1u32);
@@ -457,7 +458,7 @@ mod tests {
         let large2 = FheUint64::try_encrypt(0xFFFFFFFFu64, &client_key).unwrap();
         let large_sum = large1 + large2;  // 0x1FFFFFFFE
 
-        let carry = BigUintFHE::extract_carry(&large_sum);
+        let carry = BigUintFHE::extract_upper_bits(&large_sum);
         let lower = BigUintFHE::extract_lower_bits(&large_sum);
 
         assert_eq!(FheDecrypt::<u32>::decrypt(&carry, &client_key), 1u32);
