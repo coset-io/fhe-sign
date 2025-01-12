@@ -197,7 +197,8 @@ impl Mul for BigUintFHE {
         if self.digits.is_empty() || other.digits.is_empty() {
             return Self { digits: Vec::new() };
         }
-
+        println!("self.digits.len(): {}", self.digits.len());
+        println!("other.digits.len(): {}", other.digits.len());
         let start_total = Instant::now();
         let mut result = Vec::with_capacity(self.digits.len() + other.digits.len());
 
@@ -236,6 +237,7 @@ impl Mul for BigUintFHE {
                 result[i + 1] = result[i + 1].clone() + carry;
             }
             i += 1;
+            println!("i: {}", i);
         }
         println!("Carry processing time: {:?}", start_carries.elapsed());
 
@@ -259,21 +261,20 @@ mod tests {
     use tfhe::prelude::FheDecrypt;
 
     #[test]
-    fn test_biguint_conversion() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_biguint_conversion() {
         let config = ConfigBuilder::default().build();
         let (client_key, server_key) = tfhe::generate_keys(config);
         tfhe::set_server_key(server_key);
 
         // Test with a large number that requires multiple u32 digits
         let large_num = BigUint::parse_bytes(b"123456789123456789", 10).unwrap();
-        let encrypted = BigUintFHE::new(large_num.clone(), &client_key)?;
-        let decrypted = encrypted.to_biguint(&client_key);
+        let encrypted = BigUintFHE::new(large_num.clone(), &client_key);
+        let decrypted = encrypted.unwrap().to_biguint(&client_key);
         assert_eq!(decrypted, large_num);
-        Ok(())
     }
 
     #[test]
-    fn test_add_with_carry() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_add_with_carry() {
         let a_biguint = BigUint::from(0xFFFFFFFFu32);
         let b_biguint = BigUint::from(1u32);
         let result_biguint = a_biguint + b_biguint;
@@ -287,8 +288,8 @@ mod tests {
         let (client_key, server_key) = tfhe::generate_keys(config);
         tfhe::set_server_key(server_key);
 
-        let a = BigUintFHE::from_u32(0xFFFFFFFFu32, &client_key)?;
-        let b = BigUintFHE::from_u32(1u32, &client_key)?;
+        let a = BigUintFHE::from_u32(0xFFFFFFFFu32, &client_key).unwrap();
+        let b = BigUintFHE::from_u32(1u32, &client_key).unwrap();
         let result = a + b;
 
         assert_eq!(result.digits.len(), 2);
@@ -298,18 +299,17 @@ mod tests {
         println!("high: {}", high);
         assert_eq!(low, 0);
         assert_eq!(high, 1);
-        Ok(())
     }
 
     #[test]
-    fn test_mul_with_carry() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_mul_with_carry() {
         let config = ConfigBuilder::default().build();
         let (client_key, server_key) = tfhe::generate_keys(config);
         tfhe::set_server_key(server_key);
 
         // Test case 1: 0xFFFFFFFF * 2 = 0x1FFFFFFFE
-        let a = BigUintFHE::from_u32(0xFFFFFFFFu32, &client_key)?;
-        let b = BigUintFHE::from_u32(2u32, &client_key)?;
+        let a = BigUintFHE::from_u32(0xFFFFFFFFu32, &client_key).unwrap();
+        let b = BigUintFHE::from_u32(2u32, &client_key).unwrap();
         let result = a * b;
 
         assert_eq!(result.digits.len(), 2);
@@ -317,19 +317,17 @@ mod tests {
         let high: u32 = result.digits[1].decrypt(&client_key);
         assert_eq!(low, 0xFFFFFFFEu32);
         assert_eq!(high, 1);
-
-        Ok(())
     }
 
     #[test]
-    fn test_mul_with_carry_2() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_mul_with_carry_2() {
         let config = ConfigBuilder::default().build();
         let (client_key, server_key) = tfhe::generate_keys(config);
         tfhe::set_server_key(server_key);
 
         // Test case 2: 0xFFFFFFFF * 0xFFFFFFFF = 0xFFFFFFFE00000001
-        let a = BigUintFHE::from_u32(0xFFFFFFFFu32, &client_key)?;
-        let b = BigUintFHE::from_u32(0xFFFFFFFFu32, &client_key)?;
+        let a = BigUintFHE::from_u32(0xFFFFFFFFu32, &client_key).unwrap();
+        let b = BigUintFHE::from_u32(0xFFFFFFFFu32, &client_key).unwrap();
         let result = a * b;
 
         assert_eq!(result.digits.len(), 2);
@@ -337,18 +335,16 @@ mod tests {
         let high: u32 = result.digits[1].decrypt(&client_key);
         assert_eq!(low, 1);
         assert_eq!(high, 0xFFFFFFFEu32);
-
-        Ok(())
     }
 
     #[test]
-    fn test_add_multiple_carries() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_add_multiple_carries() {
         let config = ConfigBuilder::default().build();
         let (client_key, server_key) = tfhe::generate_keys(config);
         tfhe::set_server_key(server_key);
 
-        let a = BigUintFHE::from_u32(0xFFFFFFFFu32, &client_key)?;
-        let b = BigUintFHE::from_u32(0xFFFFFFFFu32, &client_key)?;
+        let a = BigUintFHE::from_u32(0xFFFFFFFFu32, &client_key).unwrap();
+        let b = BigUintFHE::from_u32(0xFFFFFFFFu32, &client_key).unwrap();
         let result = a + b;
 
         assert_eq!(result.digits.len(), 2);
@@ -356,18 +352,17 @@ mod tests {
         let high: u32 = result.digits[1].decrypt(&client_key);
         assert_eq!(low, 0xFFFFFFFEu32);
         assert_eq!(high, 1);
-        Ok(())
     }
 
     #[test]
-    fn test_mul_multiple_carries() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_mul_multiple_carries() {
         let config = ConfigBuilder::default().build();
         let (client_key, server_key) = tfhe::generate_keys(config);
         tfhe::set_server_key(server_key);
 
         // Test case: 0xFFFFFFFF * 0xFFFFFFFF = 0xFFFFFFFE00000001
-        let a = BigUintFHE::from_u32(0xFFFFFFFFu32, &client_key)?;
-        let b = BigUintFHE::from_u32(0xFFFFFFFFu32, &client_key)?;
+        let a = BigUintFHE::from_u32(0xFFFFFFFFu32, &client_key).unwrap();
+        let b = BigUintFHE::from_u32(0xFFFFFFFFu32, &client_key).unwrap();
         let result = a * b;
 
         assert_eq!(result.digits.len(), 2);
@@ -375,12 +370,10 @@ mod tests {
         let high: u32 = result.digits[1].decrypt(&client_key);
         assert_eq!(low, 1);
         assert_eq!(high, 0xFFFFFFFEu32);
-
-        Ok(())
     }
 
     #[test]
-    fn test_large_number_operations() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_large_number_operations() {
         let config = ConfigBuilder::default().build();
         let (client_key, server_key) = tfhe::generate_keys(config);
         tfhe::set_server_key(server_key);
@@ -389,8 +382,8 @@ mod tests {
         let a = BigUint::parse_bytes(b"123456789123456789", 10).unwrap();
         let b = BigUint::parse_bytes(b"987654321987654321", 10).unwrap();
 
-        let a_enc = BigUintFHE::new(a.clone(), &client_key)?;
-        let b_enc = BigUintFHE::new(b.clone(), &client_key)?;
+        let a_enc = BigUintFHE::new(a.clone(), &client_key).unwrap();
+        let b_enc = BigUintFHE::new(b.clone(), &client_key).unwrap();
 
         // Test addition
         let sum = a_enc.clone() + b_enc.clone();
@@ -399,19 +392,17 @@ mod tests {
         // Test multiplication
         let product = a_enc * b_enc;
         assert_eq!(product.to_biguint(&client_key), a * b);
-
-        Ok(())
     }
 
     #[test]
-    fn test_extract_carry_and_lower_bits() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_extract_carry_and_lower_bits() {
         let config = ConfigBuilder::default().build();
         let (client_key, server_key) = tfhe::generate_keys(config);
         tfhe::set_server_key(server_key);
 
         // Test case 1: Simple addition without carry
-        let num1 = FheUint64::try_encrypt(5u64, &client_key)?;
-        let num2 = FheUint64::try_encrypt(3u64, &client_key)?;
+        let num1 = FheUint64::try_encrypt(5u64, &client_key).unwrap();
+        let num2 = FheUint64::try_encrypt(3u64, &client_key).unwrap();
         let sum = num1 + num2;  // 8
 
         let carry = BigUintFHE::extract_carry(&sum);
@@ -421,8 +412,8 @@ mod tests {
         assert_eq!(FheDecrypt::<u32>::decrypt(&lower, &client_key), 8u32);
 
         // Test case 2: Addition with carry
-        let max = FheUint64::try_encrypt(0xFFFFFFFFu64, &client_key)?;
-        let one = FheUint64::try_encrypt(1u64, &client_key)?;
+        let max = FheUint64::try_encrypt(0xFFFFFFFFu64, &client_key).unwrap();
+        let one = FheUint64::try_encrypt(1u64, &client_key).unwrap();
         let sum_with_carry = max + one;  // 0x100000000
 
         let carry = BigUintFHE::extract_carry(&sum_with_carry);
@@ -432,8 +423,8 @@ mod tests {
         assert_eq!(FheDecrypt::<u32>::decrypt(&lower, &client_key), 0u32);
 
         // Test case 3: Large numbers
-        let large1 = FheUint64::try_encrypt(0xFFFFFFFFu64, &client_key)?;
-        let large2 = FheUint64::try_encrypt(0xFFFFFFFFu64, &client_key)?;
+        let large1 = FheUint64::try_encrypt(0xFFFFFFFFu64, &client_key).unwrap();
+        let large2 = FheUint64::try_encrypt(0xFFFFFFFFu64, &client_key).unwrap();
         let large_sum = large1 + large2;  // 0x1FFFFFFFE
 
         let carry = BigUintFHE::extract_carry(&large_sum);
@@ -441,19 +432,17 @@ mod tests {
 
         assert_eq!(FheDecrypt::<u32>::decrypt(&carry, &client_key), 1u32);
         assert_eq!(FheDecrypt::<u32>::decrypt(&lower, &client_key), 0xFFFFFFFEu32);
-
-        Ok(())
     }
 
     #[test]
-    fn test_uint32_overflow_behavior() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_uint32_overflow_behavior() {
         let config = ConfigBuilder::default().build();
         let (client_key, server_key) = tfhe::generate_keys(config);
         tfhe::set_server_key(server_key);
 
         // Test maximum u32 value plus one
-        let max = FheUint32::try_encrypt(0xFFFFFFFFu32, &client_key)?;
-        let one = FheUint32::try_encrypt(1u32, &client_key)?;
+        let max = FheUint32::try_encrypt(0xFFFFFFFFu32, &client_key).unwrap();
+        let one = FheUint32::try_encrypt(1u32, &client_key).unwrap();
         let sum = &max + &one;
 
         // Extract carry and lower bits
@@ -476,18 +465,17 @@ mod tests {
         // lower: 0
         // carry2: 4294967294
         // lower2: 4294967294
-        Ok(())
     }
 
     #[test]
-    fn test_uint64_carry_behavior() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_uint64_carry_behavior() {
         let config = ConfigBuilder::default().build();
         let (client_key, server_key) = tfhe::generate_keys(config);
         tfhe::set_server_key(server_key);
 
         // Test maximum u32 value plus one
-        let max = FheUint64::try_encrypt(0xFFFFFFFFu64, &client_key)?;
-        let one = FheUint64::try_encrypt(1u64, &client_key)?;
+        let max = FheUint64::try_encrypt(0xFFFFFFFFu64, &client_key).unwrap();
+        let one = FheUint64::try_encrypt(1u64, &client_key).unwrap();
         let sum = &max + &one;
 
         // Extract carry and lower bits
@@ -505,7 +493,27 @@ mod tests {
         // TFHE does not support overflow checking, here the carry is 0, which should be 1 if computed in plaintext
         assert_eq!(FheDecrypt::<u64>::decrypt(&carry2, &client_key), 1u64);
         assert_eq!(FheDecrypt::<u64>::decrypt(&lower2, &client_key), 0xFFFFFFFEu64);
-        Ok(())
+    }
+
+    #[test]
+    fn test_mul_with_carry_small_numbers() {
+        println!("starting test");
+        let config = ConfigBuilder::default().build();
+        let (client_key, server_key) = tfhe::generate_keys(config);
+        tfhe::set_server_key(server_key);
+
+        println!("finished generating keys");
+        // Use small numbers for initial testing
+        let a = BigUintFHE::from_u32(2u32, &client_key).unwrap();
+        println!("finished from_u32 a");
+        let b = BigUintFHE::from_u32(3u32, &client_key).unwrap();
+        println!("finished from_u32 b");
+        let result = a * b;
+        println!("finished mul");
+
+        // Decrypt the result to verify correctness
+        let decrypted = result.to_biguint(&client_key);
+        assert_eq!(decrypted, BigUint::from(6u32));
     }
 }
 
