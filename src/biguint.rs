@@ -13,7 +13,7 @@ pub struct BigUintFHE {
 
 impl BigUintFHE {
     /// Creates a new BigUintFHE from a BigUint value
-    pub fn new(value: BigUint, client_key: &ClientKey) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(value: BigUint, client_key: &ClientKey) -> Result<Self, tfhe::Error> {
         if value == BigUint::from(0u32) {
             Ok(Self { digits: vec![] })
         } else {
@@ -30,7 +30,7 @@ impl BigUintFHE {
     }
 
     /// Creates a new BigUintFHE from a u32 value
-    pub fn from_u32(value: u32, client_key: &ClientKey) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_u32(value: u32, client_key: &ClientKey) -> Result<Self, tfhe::Error> {
         Self::new(BigUint::from(value), client_key)
     }
 
@@ -47,12 +47,12 @@ impl BigUintFHE {
     }
 
     /// Returns zero
-    pub fn zero(_client_key: &ClientKey) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn zero(_client_key: &ClientKey) -> Result<Self, tfhe::Error> {
         Ok(Self { digits: Vec::<FheUint32>::new() })
     }
 
     /// Returns one
-    pub fn one(client_key: &ClientKey) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn one(client_key: &ClientKey) -> Result<Self, tfhe::Error> {
         Self::from_u32(1, client_key)
     }
 
