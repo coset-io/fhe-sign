@@ -202,24 +202,33 @@ impl Mul for BigUintFHE {
         let start_total = Instant::now();
 
         // Initialize result vector with zeros
+        let start_init = Instant::now();
         let mut result = vec![
             FheUint32::try_encrypt(0u32, &self.client_key).unwrap();
             self.digits.len() + other.digits.len()
         ];
+        println!("Init time: {:?}", start_init.elapsed());
 
         // Compute each partial product and add to the appropriate position
         let start_products = Instant::now();
         for (i, a) in self.digits.iter().enumerate() {
             for (j, b) in other.digits.iter().enumerate() {
+                let start_iter = Instant::now();
                 let idx = i + j;
+
+                let start_decrypt = Instant::now();
                 let a32_clear: u32 = a.decrypt(&self.client_key);
                 let b32_clear: u32 = b.decrypt(&self.client_key);
                 let product_clear = a32_clear as u64 * b32_clear as u64;
+                println!("Decrypt time: {:?}", start_decrypt.elapsed());
 
                 // Split product into lower and upper 32 bits
+                let start_encrypt = Instant::now();
                 let lower = FheUint32::try_encrypt((product_clear & 0xFFFFFFFF) as u32, &self.client_key).unwrap();
                 let upper = FheUint32::try_encrypt((product_clear >> 32) as u32, &self.client_key).unwrap();
+                println!("Encrypt time: {:?}", start_encrypt.elapsed());
 
+                let start_add = Instant::now();
                 // Add lower part and handle potential carry
                 let current_pos = FheUint64::cast_from(result[idx].clone());
                 let lower64 = FheUint64::cast_from(lower);
@@ -237,9 +246,12 @@ impl Mul for BigUintFHE {
                 if idx + 2 < result.len() {
                     result[idx + 2] = result[idx + 2].clone() + BigUintFHE::extract_carry(&sum);
                 }
+                println!("Addition time: {:?}", start_add.elapsed());
+
+                println!("Total iteration time: {:?}", start_iter.elapsed());
             }
         }
-        println!("Partial products time: {:?}", start_products.elapsed());
+        println!("Total products time: {:?}", start_products.elapsed());
 
         let result = Self {
             digits: result,
