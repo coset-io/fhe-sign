@@ -3,6 +3,7 @@ use std::fmt;
 use tfhe::prelude::*;
 use tfhe::{FheUint32, FheUint64, ClientKey};
 use num_bigint::BigUint;
+use std::time::Instant;
 
 #[derive(Clone)]
 pub struct BigUintFHE {
@@ -197,9 +198,12 @@ impl Mul for BigUintFHE {
             return Self { digits: Vec::new() };
         }
 
+        let start_total = Instant::now();
         let mut result = Vec::with_capacity(self.digits.len() + other.digits.len());
 
         // Compute each partial product and add to the appropriate position
+        // Time the partial products computation
+        let start_products = Instant::now();
         for (i, a) in self.digits.iter().enumerate() {
             for (j, b) in other.digits.iter().enumerate() {
                 let idx = i + j;
@@ -215,8 +219,11 @@ impl Mul for BigUintFHE {
                 }
             }
         }
+        println!("Partial products time: {:?}", start_products.elapsed());
 
         // Process carries after all products are computed
+        // Time the carry processing
+        let start_carries = Instant::now();
         let mut i = 0;
         while i < result.len() {
             let carry = &result[i] >> 32u64;
@@ -230,8 +237,11 @@ impl Mul for BigUintFHE {
             }
             i += 1;
         }
+        println!("Carry processing time: {:?}", start_carries.elapsed());
 
-        Self { digits: result.into_iter().map(|d| FheUint32::cast_from(d)).collect() }
+        let result = Self { digits: result.into_iter().map(|d| FheUint32::cast_from(d)).collect() };
+        println!("Total multiplication time: {:?}", start_total.elapsed());
+        result
     }
 }
 
