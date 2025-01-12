@@ -216,11 +216,11 @@ impl Mul for BigUintFHE {
                 let start_iter = Instant::now();
                 let idx = i + j;
 
-                let a32_clear: u32 = a.decrypt(&self.client_key);
-                let b32_clear: u32 = b.decrypt(&self.client_key);
-                let product_clear = a32_clear as u64 * b32_clear as u64;
                 let start_mul = Instant::now();
                 // Convert to FheUint64 for multiplication
+                let a64 = FheUint64::cast_from(a.clone());
+                let b64 = FheUint64::cast_from(b.clone());
+                let product = a64 * b64;
                 println!("Multiplication time: {:?}", start_mul.elapsed());
 
                 // Split product into lower and upper 32 bits
