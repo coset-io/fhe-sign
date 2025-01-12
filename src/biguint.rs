@@ -1,7 +1,7 @@
 use std::ops::{Add, Mul};
 use std::fmt;
 use tfhe::prelude::*;
-use tfhe::{FheUint32, ClientKey};
+use tfhe::{FheUint32, FheUint64, ClientKey};
 use num_bigint::BigUint;
 
 #[derive(Clone)]
@@ -56,7 +56,7 @@ impl BigUintFHE {
     }
 
     /// Decrypts the BigUintFHE to a BigUint
-    pub fn decrypt(&self, client_key: &ClientKey) -> BigUint {
+    pub fn to_biguint(&self, client_key: &ClientKey) -> BigUint {
         if self.digits.is_empty() {
             return BigUint::from(0u32);
         }
@@ -102,16 +102,16 @@ impl BigUintFHE {
         }
     }
 
-    /// Extract carry from a sum of two FheUint32
-    fn extract_carry(sum: &FheUint32) -> FheUint32 {
+    /// Extract carry from a sum
+    fn extract_carry(sum: &FheUint64) -> FheUint32 {
         // Right shift by 32 bits to get the carry
-        sum >> 32u32
+        FheUint32::cast_from(sum >> 32u64)
     }
 
     /// Extract lower 32 bits from a sum
-    fn extract_lower_bits(sum: &FheUint32) -> FheUint32 {
+    fn extract_lower_bits(sum: &FheUint64) -> FheUint32 {
         // Use bitwise AND with mask 0xFFFFFFFF to get lower 32 bits
-        sum & 0xFFFFFFFFu32
+        FheUint32::cast_from(sum & 0xFFFFFFFFu64)
     }
 }
 
@@ -129,33 +129,46 @@ impl Add for BigUintFHE {
 
             let sum = match (a, b, carry.as_ref()) {
                 (Some(a), Some(b), Some(c)) => {
-                    // Add all three numbers
-                    let sum = a + b + c;
-                    // Extract carry and lower bits
-                    let next_carry = Self::extract_carry(&sum);
+                    // Convert to u64 for the sum
+                    let a64 = FheUint64::cast_from(a.clone());
+                    let b64 = FheUint64::cast_from(b.clone());
+                    let c64 = FheUint64::cast_from(c.clone());
+                    let temp_sum = a64 + b64 + c64;
+
+                    // Extract carry and result
+                    let next_carry = FheUint32::cast_from(&temp_sum >> 32u64);
                     carry = Some(next_carry);
-                    Self::extract_lower_bits(&sum)
+                    FheUint32::cast_from(&temp_sum & 0xFFFFFFFFu64)
                 },
                 (Some(a), Some(b), None) => {
-                    let sum = a + b;
-                    let next_carry = Self::extract_carry(&sum);
+                    let a64 = FheUint64::cast_from(a.clone());
+                    let b64 = FheUint64::cast_from(b.clone());
+                    let temp_sum = a64 + b64;
+
+                    let next_carry = FheUint32::cast_from(&temp_sum >> 32u64);
                     carry = Some(next_carry);
-                    Self::extract_lower_bits(&sum)
+                    FheUint32::cast_from(&temp_sum & 0xFFFFFFFFu64)
                 },
                 (Some(a), None, Some(c)) => {
-                    let sum = a + c;
-                    let next_carry = Self::extract_carry(&sum);
+                    let a64 = FheUint64::cast_from(a.clone());
+                    let c64 = FheUint64::cast_from(c.clone());
+                    let temp_sum = a64 + c64;
+
+                    let next_carry = FheUint32::cast_from(&temp_sum >> 32u64);
                     carry = Some(next_carry);
-                    Self::extract_lower_bits(&sum)
+                    FheUint32::cast_from(&temp_sum & 0xFFFFFFFFu64)
                 },
                 (Some(a), None, None) => {
                     a.clone()
                 },
                 (None, Some(b), Some(c)) => {
-                    let sum = b + c;
-                    let next_carry = Self::extract_carry(&sum);
+                    let b64 = FheUint64::cast_from(b.clone());
+                    let c64 = FheUint64::cast_from(c.clone());
+                    let temp_sum = b64 + c64;
+
+                    let next_carry = FheUint32::cast_from(&temp_sum >> 32u64);
                     carry = Some(next_carry);
-                    Self::extract_lower_bits(&sum)
+                    FheUint32::cast_from(&temp_sum & 0xFFFFFFFFu64)
                 },
                 (None, Some(b), None) => {
                     b.clone()
@@ -168,7 +181,6 @@ impl Add for BigUintFHE {
             result.push(sum);
         }
 
-        // Don't forget to add the final carry if it exists
         if let Some(c) = carry {
             result.push(c);
         }
@@ -205,8 +217,8 @@ impl Mul for BigUintFHE {
         // Process carries after all products are computed
         let mut i = 0;
         while i < result.len() {
-            let carry = Self::extract_carry(&result[i]);
-            result[i] = Self::extract_lower_bits(&result[i]);
+            let carry = &result[i] >> 32u32;
+            result[i] = &result[i] & 0xFFFFFFFFu32;
 
             // If we have a carry, add it to the next position or create a new digit
             if i + 1 >= result.len() {
@@ -232,6 +244,7 @@ impl fmt::Display for BigUintFHE {
 mod tests {
     use super::*;
     use tfhe::ConfigBuilder;
+    use tfhe::prelude::FheDecrypt;
 
     #[test]
     fn test_biguint_conversion() -> Result<(), Box<dyn std::error::Error>> {
@@ -242,13 +255,22 @@ mod tests {
         // Test with a large number that requires multiple u32 digits
         let large_num = BigUint::parse_bytes(b"123456789123456789", 10).unwrap();
         let encrypted = BigUintFHE::new(large_num.clone(), &client_key)?;
-        let decrypted = encrypted.decrypt(&client_key);
+        let decrypted = encrypted.to_biguint(&client_key);
         assert_eq!(decrypted, large_num);
         Ok(())
     }
 
     #[test]
     fn test_add_with_carry() -> Result<(), Box<dyn std::error::Error>> {
+        let a_biguint = BigUint::from(0xFFFFFFFFu32);
+        let b_biguint = BigUint::from(1u32);
+        let result_biguint = a_biguint + b_biguint;
+        let low_biguint: u32 = result_biguint.to_u32_digits()[0];
+        let high_biguint: u32 = result_biguint.to_u32_digits()[1];
+        assert_eq!(result_biguint, BigUint::from(0x100000000u64));
+        assert_eq!(low_biguint, 0);
+        assert_eq!(high_biguint, 1);
+
         let config = ConfigBuilder::default().build();
         let (client_key, server_key) = tfhe::generate_keys(config);
         tfhe::set_server_key(server_key);
@@ -260,6 +282,8 @@ mod tests {
         assert_eq!(result.digits.len(), 2);
         let low: u32 = result.digits[0].decrypt(&client_key);
         let high: u32 = result.digits[1].decrypt(&client_key);
+        println!("low: {}", low);
+        println!("high: {}", high);
         assert_eq!(low, 0);
         assert_eq!(high, 1);
         Ok(())
@@ -334,12 +358,118 @@ mod tests {
 
         // Test addition
         let sum = a_enc.clone() + b_enc.clone();
-        assert_eq!(sum.decrypt(&client_key), a.clone() + b.clone());
+        assert_eq!(sum.to_biguint(&client_key), a.clone() + b.clone());
 
         // Test multiplication
         let product = a_enc * b_enc;
-        assert_eq!(product.decrypt(&client_key), a * b);
+        assert_eq!(product.to_biguint(&client_key), a * b);
 
         Ok(())
     }
+
+    #[test]
+    fn test_extract_carry_and_lower_bits() -> Result<(), Box<dyn std::error::Error>> {
+        let config = ConfigBuilder::default().build();
+        let (client_key, server_key) = tfhe::generate_keys(config);
+        tfhe::set_server_key(server_key);
+
+        // Test case 1: Simple addition without carry
+        let num1 = FheUint64::try_encrypt(5u64, &client_key)?;
+        let num2 = FheUint64::try_encrypt(3u64, &client_key)?;
+        let sum = num1 + num2;  // 8
+
+        let carry = BigUintFHE::extract_carry(&sum);
+        let lower = BigUintFHE::extract_lower_bits(&sum);
+
+        assert_eq!(FheDecrypt::<u32>::decrypt(&carry, &client_key), 0u32);
+        assert_eq!(FheDecrypt::<u32>::decrypt(&lower, &client_key), 8u32);
+
+        // Test case 2: Addition with carry
+        let max = FheUint64::try_encrypt(0xFFFFFFFFu64, &client_key)?;
+        let one = FheUint64::try_encrypt(1u64, &client_key)?;
+        let sum_with_carry = max + one;  // 0x100000000
+
+        let carry = BigUintFHE::extract_carry(&sum_with_carry);
+        let lower = BigUintFHE::extract_lower_bits(&sum_with_carry);
+
+        assert_eq!(FheDecrypt::<u32>::decrypt(&carry, &client_key), 1u32);
+        assert_eq!(FheDecrypt::<u32>::decrypt(&lower, &client_key), 0u32);
+
+        // Test case 3: Large numbers
+        let large1 = FheUint64::try_encrypt(0xFFFFFFFFu64, &client_key)?;
+        let large2 = FheUint64::try_encrypt(0xFFFFFFFFu64, &client_key)?;
+        let large_sum = large1 + large2;  // 0x1FFFFFFFE
+
+        let carry = BigUintFHE::extract_carry(&large_sum);
+        let lower = BigUintFHE::extract_lower_bits(&large_sum);
+
+        assert_eq!(FheDecrypt::<u32>::decrypt(&carry, &client_key), 1u32);
+        assert_eq!(FheDecrypt::<u32>::decrypt(&lower, &client_key), 0xFFFFFFFEu32);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_uint32_overflow_behavior() -> Result<(), Box<dyn std::error::Error>> {
+        let config = ConfigBuilder::default().build();
+        let (client_key, server_key) = tfhe::generate_keys(config);
+        tfhe::set_server_key(server_key);
+
+        // Test maximum u32 value plus one
+        let max = FheUint32::try_encrypt(0xFFFFFFFFu32, &client_key)?;
+        let one = FheUint32::try_encrypt(1u32, &client_key)?;
+        let sum = &max + &one;
+
+        // Extract carry and lower bits
+        let carry = &sum >> 32u32;
+        let lower = &sum & 0xFFFFFFFFu32;
+        // TFHE does not support overflow checking, here the carry is 0, which should be 1 if computed in plaintext
+        println!("carry: {}", FheDecrypt::<u32>::decrypt(&carry, &client_key));
+        println!("lower: {}", FheDecrypt::<u32>::decrypt(&lower, &client_key));
+
+        // Test maximum u32 value plus itself
+        let sum2 = &max + &max;
+        let carry2 = &sum2 >> 32u32;
+        let lower2 = &sum2 & 0xFFFFFFFFu32;
+
+        // TFHE does not support overflow checking, here the carry is 0, which should be 1 if computed in plaintext
+        println!("carry2: {}", FheDecrypt::<u32>::decrypt(&carry2, &client_key));
+        println!("lower2: {}", FheDecrypt::<u32>::decrypt(&lower2, &client_key));
+        // Expected output(which is wrong because of overflow):
+        // carry: 0
+        // lower: 0
+        // carry2: 4294967294
+        // lower2: 4294967294
+        Ok(())
+    }
+
+    #[test]
+    fn test_uint64_carry_behavior() -> Result<(), Box<dyn std::error::Error>> {
+        let config = ConfigBuilder::default().build();
+        let (client_key, server_key) = tfhe::generate_keys(config);
+        tfhe::set_server_key(server_key);
+
+        // Test maximum u32 value plus one
+        let max = FheUint64::try_encrypt(0xFFFFFFFFu64, &client_key)?;
+        let one = FheUint64::try_encrypt(1u64, &client_key)?;
+        let sum = &max + &one;
+
+        // Extract carry and lower bits
+        let carry = &sum >> 32u64;
+        let lower = &sum & 0xFFFFFFFFu64;
+        // TFHE does not support overflow checking, here the carry is 0, which should be 1 if computed in plaintext
+        assert_eq!(FheDecrypt::<u64>::decrypt(&carry, &client_key), 1u64);
+        assert_eq!(FheDecrypt::<u64>::decrypt(&lower, &client_key), 0u64);
+
+        // Test maximum u32 value plus itself
+        let sum2 = &max + &max;
+        let carry2 = &sum2 >> 32u64;
+        let lower2 = &sum2 & 0xFFFFFFFFu64;
+
+        // TFHE does not support overflow checking, here the carry is 0, which should be 1 if computed in plaintext
+        assert_eq!(FheDecrypt::<u64>::decrypt(&carry2, &client_key), 1u64);
+        assert_eq!(FheDecrypt::<u64>::decrypt(&lower2, &client_key), 0xFFFFFFFEu64);
+        Ok(())
+    }
 }
+
