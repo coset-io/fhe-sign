@@ -378,6 +378,41 @@ mod tests {
 
         assert!(all_passed, "Some test vectors failed");
     }
+
+    #[test]
+    fn test_fheu32_mul_u32() {
+        let config = ConfigBuilder::default().build();
+        let (client_key, server_keys) = generate_keys(config);
+        set_server_key(server_keys);
+
+        // Test FHE multiplication with plain value
+        let value = 123u32;
+        let multiplier = 456u32;
+        let expected = value * multiplier;
+        // Encrypt the value
+        let encrypted = FheUint32::try_encrypt(value, &client_key).unwrap();
+
+        // Multiply encrypted value with plain value
+        let result_fhe = encrypted * multiplier;
+        // Decrypt and verify
+        let decrypted: u32 = result_fhe.decrypt(&client_key);
+        assert_eq!(decrypted, expected);
+    }
+
+    #[test]
+    fn test_fheu32_add_u32() {
+        let config = ConfigBuilder::default().build();
+        let (client_key, server_keys) = generate_keys(config);
+        set_server_key(server_keys);
+
+        let value = 123u32;
+        let addend = 456u32;
+        let expected = value + addend;
+        let encrypted = FheUint32::try_encrypt(value, &client_key).unwrap();
+        let result_fhe = encrypted + addend;
+        let decrypted: u32 = result_fhe.decrypt(&client_key);
+        assert_eq!(decrypted, expected);
+    }
 }
 
 
