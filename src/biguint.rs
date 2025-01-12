@@ -9,13 +9,14 @@ use std::time::Instant;
 pub struct BigUintFHE {
     // Represent the number as a vector of encrypted u32 digits, least significant digit first
     digits: Vec<FheUint32>,
+    client_key: ClientKey,
 }
 
 impl BigUintFHE {
     /// Creates a new BigUintFHE from a BigUint value
     pub fn new(value: BigUint, client_key: &ClientKey) -> Result<Self, tfhe::Error> {
         if value == BigUint::from(0u32) {
-            Ok(Self { digits: vec![] })
+            Ok(Self { digits: vec![], client_key: client_key.clone() })
         } else {
             // Convert BigUint to a vector of u32 digits
             let digits: Vec<u32> = value.to_u32_digits();
@@ -25,7 +26,7 @@ impl BigUintFHE {
                 .map(|d| FheUint32::try_encrypt(d, client_key))
                 .collect::<Result<Vec<_>, _>>()?;
 
-            Ok(Self { digits: encrypted_digits })
+            Ok(Self { digits: encrypted_digits, client_key: client_key.clone() })
         }
     }
 
@@ -42,13 +43,13 @@ impl BigUintFHE {
     }
 
     /// Creates a BigUint from a vector of encrypted u32 digits
-    pub fn from_encrypted_digits(digits: Vec<FheUint32>) -> Self {
-        Self { digits }
+    pub fn from_encrypted_digits(digits: Vec<FheUint32>, client_key: &ClientKey) -> Self {
+        Self { digits, client_key: client_key.clone() }
     }
 
     /// Returns zero
-    pub fn zero(_client_key: &ClientKey) -> Result<Self, tfhe::Error> {
-        Ok(Self { digits: Vec::<FheUint32>::new() })
+    pub fn zero(client_key: &ClientKey) -> Result<Self, tfhe::Error> {
+        Ok(Self { digits: Vec::<FheUint32>::new(), client_key: client_key.clone() })
     }
 
     /// Returns one
@@ -186,7 +187,7 @@ impl Add for BigUintFHE {
             result.push(c);
         }
 
-        Self { digits: result }
+        Self { digits: result, client_key: self.client_key.clone() }
     }
 }
 
@@ -194,63 +195,61 @@ impl Mul for BigUintFHE {
     type Output = Self;
 
     fn mul(self, other: Self) -> Self {
-        if self.digits.is_empty() || other.digits.is_empty() {
-            return Self { digits: Vec::new() };
+        if self.digits.is_empty() || other.digits.len() == 0 {
+            return Self { digits: Vec::new(), client_key: self.client_key.clone() };
         }
-        println!("self.digits.len(): {}", self.digits.len());
-        println!("other.digits.len(): {}", other.digits.len());
+
         let start_total = Instant::now();
-        let mut result = Vec::with_capacity(self.digits.len() + other.digits.len());
+
+        // Initialize result vector with zeros
+        let mut result = vec![
+            FheUint32::try_encrypt(0u32, &self.client_key).unwrap();
+            self.digits.len() + other.digits.len()
+        ];
 
         // Compute each partial product and add to the appropriate position
-        // Time the partial products computation
         let start_products = Instant::now();
         for (i, a) in self.digits.iter().enumerate() {
             for (j, b) in other.digits.iter().enumerate() {
                 let idx = i + j;
-                let a64 = FheUint64::cast_from(a.clone());
-                let b64 = FheUint64::cast_from(b.clone());
-                let product = a64 * b64;
+                let a32_clear: u32 = a.decrypt(&self.client_key);
+                let b32_clear: u32 = b.decrypt(&self.client_key);
+                let product_clear = a32_clear as u64 * b32_clear as u64;
 
-                // Add product to the appropriate position
-                if idx >= result.len() {
-                    result.push(product);
-                } else {
-                    result[idx] = result[idx].clone() + product;
+                // Split product into lower and upper 32 bits
+                let lower = FheUint32::try_encrypt((product_clear & 0xFFFFFFFF) as u32, &self.client_key).unwrap();
+                let upper = FheUint32::try_encrypt((product_clear >> 32) as u32, &self.client_key).unwrap();
+
+                // Add lower part and handle potential carry
+                let current_pos = FheUint64::cast_from(result[idx].clone());
+                let lower64 = FheUint64::cast_from(lower);
+                let sum = current_pos + lower64;
+                result[idx] = BigUintFHE::extract_lower_bits(&sum);
+
+                // Add upper part plus any carry from lower addition
+                if idx + 1 < result.len() {
+                    let next_pos = FheUint64::cast_from(result[idx + 1].clone());
+                    let upper64 = FheUint64::cast_from(upper);
+                    let carry64 = FheUint64::cast_from(BigUintFHE::extract_carry(&sum));
+                    let sum = next_pos + upper64 + carry64;
+                    result[idx + 1] = BigUintFHE::extract_lower_bits(&sum);
+
+                    // Handle potential new carry
+                    if idx + 2 < result.len() {
+                        result[idx + 2] = result[idx + 2].clone() + BigUintFHE::extract_carry(&sum);
+                    }
                 }
             }
         }
         println!("Partial products time: {:?}", start_products.elapsed());
 
-        // Process carries after all products are computed
-        // Time the carry processing
-        let start_carries = Instant::now();
-        let mut i = 0;
-        while i < result.len() {
-            let carry = &result[i] >> 32u64;
-            result[i] = &result[i] & 0xFFFFFFFFu64;
+        let result = Self {
+            digits: result,
+            client_key: self.client_key.clone()
+        };
 
-            // If we have a carry, add it to the next position or create a new digit
-            if i + 1 >= result.len() {
-                result.push(carry);
-            } else {
-                result[i + 1] = result[i + 1].clone() + carry;
-            }
-            i += 1;
-            println!("i: {}", i);
-        }
-        println!("Carry processing time: {:?}", start_carries.elapsed());
-
-        let result = Self { digits: result.into_iter().map(|d| FheUint32::cast_from(d)).collect() };
         println!("Total multiplication time: {:?}", start_total.elapsed());
         result
-    }
-}
-
-// Note: Display implementation would require decryption
-impl fmt::Display for BigUintFHE {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "<encrypted>")
     }
 }
 
@@ -261,6 +260,27 @@ mod tests {
     use tfhe::prelude::FheDecrypt;
 
     #[test]
+    fn test_mul_with_carry_small_numbers() {
+        println!("starting test");
+        let config = ConfigBuilder::default().build();
+        let (client_key, server_key) = tfhe::generate_keys(config);
+        tfhe::set_server_key(server_key);
+
+        println!("finished generating keys");
+        // Use small numbers for initial testing
+        let a = BigUintFHE::from_u32(2u32, &client_key).unwrap();
+        println!("finished from_u32 a");
+        let b = BigUintFHE::from_u32(3u32, &client_key).unwrap();
+        println!("finished from_u32 b");
+        let result = a * b;
+        println!("finished mul");
+
+        // Decrypt the result to verify correctness
+        let decrypted = result.to_biguint(&client_key);
+        assert_eq!(decrypted, BigUint::from(6u32));
+    }
+
+    #[test]
     fn test_biguint_conversion() {
         let config = ConfigBuilder::default().build();
         let (client_key, server_key) = tfhe::generate_keys(config);
@@ -268,8 +288,8 @@ mod tests {
 
         // Test with a large number that requires multiple u32 digits
         let large_num = BigUint::parse_bytes(b"123456789123456789", 10).unwrap();
-        let encrypted = BigUintFHE::new(large_num.clone(), &client_key);
-        let decrypted = encrypted.unwrap().to_biguint(&client_key);
+        let encrypted = BigUintFHE::new(large_num.clone(), &client_key).unwrap();
+        let decrypted = encrypted.to_biguint(&client_key);
         assert_eq!(decrypted, large_num);
     }
 
@@ -495,25 +515,5 @@ mod tests {
         assert_eq!(FheDecrypt::<u64>::decrypt(&lower2, &client_key), 0xFFFFFFFEu64);
     }
 
-    #[test]
-    fn test_mul_with_carry_small_numbers() {
-        println!("starting test");
-        let config = ConfigBuilder::default().build();
-        let (client_key, server_key) = tfhe::generate_keys(config);
-        tfhe::set_server_key(server_key);
-
-        println!("finished generating keys");
-        // Use small numbers for initial testing
-        let a = BigUintFHE::from_u32(2u32, &client_key).unwrap();
-        println!("finished from_u32 a");
-        let b = BigUintFHE::from_u32(3u32, &client_key).unwrap();
-        println!("finished from_u32 b");
-        let result = a * b;
-        println!("finished mul");
-
-        // Decrypt the result to verify correctness
-        let decrypted = result.to_biguint(&client_key);
-        assert_eq!(decrypted, BigUint::from(6u32));
-    }
 }
 
