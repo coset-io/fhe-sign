@@ -318,6 +318,15 @@ mod tests {
         assert_eq!(low, 0xFFFFFFFEu32);
         assert_eq!(high, 1);
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_mul_with_carry_2() -> Result<(), Box<dyn std::error::Error>> {
+        let config = ConfigBuilder::default().build();
+        let (client_key, server_key) = tfhe::generate_keys(config);
+        tfhe::set_server_key(server_key);
+
         // Test case 2: 0xFFFFFFFF * 0xFFFFFFFF = 0xFFFFFFFE00000001
         let a = BigUintFHE::from_u32(0xFFFFFFFFu32, &client_key)?;
         let b = BigUintFHE::from_u32(0xFFFFFFFFu32, &client_key)?;
