@@ -227,17 +227,15 @@ impl Mul for BigUintFHE {
                 result[idx] = BigUintFHE::extract_lower_bits(&sum);
 
                 // Add upper part plus any carry from lower addition
-                if idx + 1 < result.len() {
-                    let next_pos = FheUint64::cast_from(result[idx + 1].clone());
-                    let upper64 = FheUint64::cast_from(upper);
-                    let carry64 = FheUint64::cast_from(BigUintFHE::extract_carry(&sum));
-                    let sum = next_pos + upper64 + carry64;
-                    result[idx + 1] = BigUintFHE::extract_lower_bits(&sum);
+                let next_pos = FheUint64::cast_from(result[idx + 1].clone());
+                let upper64 = FheUint64::cast_from(upper);
+                let carry64 = FheUint64::cast_from(BigUintFHE::extract_carry(&sum));
+                let sum = next_pos + upper64 + carry64;
+                result[idx + 1] = BigUintFHE::extract_lower_bits(&sum);
 
-                    // Handle potential new carry
-                    if idx + 2 < result.len() {
-                        result[idx + 2] = result[idx + 2].clone() + BigUintFHE::extract_carry(&sum);
-                    }
+                // Handle potential new carry
+                if idx + 2 < result.len() {
+                    result[idx + 2] = result[idx + 2].clone() + BigUintFHE::extract_carry(&sum);
                 }
             }
         }
