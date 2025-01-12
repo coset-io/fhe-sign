@@ -203,7 +203,9 @@ impl Mul for BigUintFHE {
         for (i, a) in self.digits.iter().enumerate() {
             for (j, b) in other.digits.iter().enumerate() {
                 let idx = i + j;
-                let product = a * b;
+                let a64 = FheUint64::cast_from(a.clone());
+                let b64 = FheUint64::cast_from(b.clone());
+                let product = a64 * b64;
 
                 // Add product to the appropriate position
                 if idx >= result.len() {
@@ -217,8 +219,8 @@ impl Mul for BigUintFHE {
         // Process carries after all products are computed
         let mut i = 0;
         while i < result.len() {
-            let carry = &result[i] >> 32u32;
-            result[i] = &result[i] & 0xFFFFFFFFu32;
+            let carry = &result[i] >> 32u64;
+            result[i] = &result[i] & 0xFFFFFFFFu64;
 
             // If we have a carry, add it to the next position or create a new digit
             if i + 1 >= result.len() {
@@ -229,7 +231,7 @@ impl Mul for BigUintFHE {
             i += 1;
         }
 
-        Self { digits: result }
+        Self { digits: result.into_iter().map(|d| FheUint32::cast_from(d)).collect() }
     }
 }
 
@@ -295,6 +297,7 @@ mod tests {
         let (client_key, server_key) = tfhe::generate_keys(config);
         tfhe::set_server_key(server_key);
 
+        // Test case 1: 0xFFFFFFFF * 2 = 0x1FFFFFFFE
         let a = BigUintFHE::from_u32(0xFFFFFFFFu32, &client_key)?;
         let b = BigUintFHE::from_u32(2u32, &client_key)?;
         let result = a * b;
@@ -304,6 +307,18 @@ mod tests {
         let high: u32 = result.digits[1].decrypt(&client_key);
         assert_eq!(low, 0xFFFFFFFEu32);
         assert_eq!(high, 1);
+
+        // Test case 2: 0xFFFFFFFF * 0xFFFFFFFF = 0xFFFFFFFE00000001
+        let a = BigUintFHE::from_u32(0xFFFFFFFFu32, &client_key)?;
+        let b = BigUintFHE::from_u32(0xFFFFFFFFu32, &client_key)?;
+        let result = a * b;
+
+        assert_eq!(result.digits.len(), 2);
+        let low: u32 = result.digits[0].decrypt(&client_key);
+        let high: u32 = result.digits[1].decrypt(&client_key);
+        assert_eq!(low, 1);
+        assert_eq!(high, 0xFFFFFFFEu32);
+
         Ok(())
     }
 
@@ -331,6 +346,7 @@ mod tests {
         let (client_key, server_key) = tfhe::generate_keys(config);
         tfhe::set_server_key(server_key);
 
+        // Test case: 0xFFFFFFFF * 0xFFFFFFFF = 0xFFFFFFFE00000001
         let a = BigUintFHE::from_u32(0xFFFFFFFFu32, &client_key)?;
         let b = BigUintFHE::from_u32(0xFFFFFFFFu32, &client_key)?;
         let result = a * b;
@@ -340,6 +356,7 @@ mod tests {
         let high: u32 = result.digits[1].decrypt(&client_key);
         assert_eq!(low, 1);
         assert_eq!(high, 0xFFFFFFFEu32);
+
         Ok(())
     }
 
