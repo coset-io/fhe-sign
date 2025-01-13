@@ -4,7 +4,7 @@ use std::time::Instant;
 use tfhe::prelude::*;
 use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint32, FheUint8, ClientKey, FheBool};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+pub fn perf_test() {
     // Basic configuration to use homomorphic integers
     let config = ConfigBuilder::default().build();
 
@@ -89,7 +89,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Time taken for decrypt: 365.956µs
     // Time taken for decrypt div: 912.233µs
     // Time taken for float div: 78ns
-    Ok(())
 }
 
 #[cfg(test)]
@@ -98,6 +97,6 @@ mod tests {
 
     #[test]
     fn test_perf_test() {
-        main();
+        perf_test();
     }
 }
