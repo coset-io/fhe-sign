@@ -16,9 +16,9 @@ pub fn perf_test() {
     let clear_c = 7u8;
 
     // Encrypting the input data using the (private) client_key
-    let encrypted_a = FheUint32::try_encrypt(clear_a, &client_key)?;
-    let encrypted_b = FheUint32::try_encrypt(clear_b, &client_key)?;
-    let encrypted_c = FheUint8::try_encrypt(clear_c, &client_key)?;
+    let encrypted_a = FheUint32::try_encrypt(clear_a, &client_key).unwrap();
+    let encrypted_b = FheUint32::try_encrypt(clear_b, &client_key).unwrap();
+    let encrypted_c = FheUint8::try_encrypt(clear_c, &client_key).unwrap();
 
     // On the server side:
     set_server_key(server_keys);
