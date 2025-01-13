@@ -63,7 +63,7 @@ impl Schnorr {
     }
 
     /// Signs a message using the Schnorr signature scheme according to BIP-340.
-    pub fn sign(&self, message: &[u8], aux_rand: &[u8], client_key: &ClientKey) -> Result<Signature, tfhe::Error> {
+    pub fn sign(&self, message: &[u8], aux_rand: &[u8]) -> Result<Signature, Box<dyn std::error::Error>> {
         let (pubkey, d) = self.get_public_key();
         let curve_order = get_curve_order();
         // Generate deterministic nonce k0 according to BIP-340
@@ -82,15 +82,7 @@ impl Schnorr {
         let e = compute_challenge(&r, &pubkey, message);
 
         // Compute s = (k + e * d) % n
-        let d_fhe = BigUintFHE::new(d.value().clone(), &client_key)?;
-        let e_fhe = BigUintFHE::new(e.clone(), &client_key)?;
-        let k_fhe = BigUintFHE::new(k.clone(), &client_key)?;
-        // let order_fhe = BigUintFHE::new(curve_order.clone(), &client_key)?;
-        let s_fhe_without_mod = k_fhe + e_fhe * d_fhe;
-        let s_without_mod = s_fhe_without_mod.to_biguint(&client_key);
-        let s = s_without_mod % curve_order;
-
-        // let s = s_fhe.decrypt(&client_key);
+        let s = (k + e * d.value()) % get_curve_order();
 
         Ok(Signature {
             r_x: r.x,
@@ -293,7 +285,7 @@ mod tests {
 
         let seckey = Scalar::new(BigUint::from_bytes_be(&seckey_bytes));
         let schnorr = Schnorr::new(seckey);
-        let sig = schnorr.sign(&message, &aux_rand, &client_key);
+        let sig = schnorr.sign(&message, &aux_rand);
         let (pubkey, _) = schnorr.get_public_key();
 
         assert!(sig.is_ok());
@@ -322,7 +314,7 @@ mod tests {
 
         let seckey = Scalar::new(BigUint::from_bytes_be(&seckey_bytes));
         let schnorr = Schnorr::new(seckey);
-        let sig = schnorr.sign(&message, &aux_rand, &client_key);
+        let sig = schnorr.sign(&message, &aux_rand);
         assert!(sig.is_ok());
         let sig = sig.unwrap();
         let (pubkey, _) = schnorr.get_public_key();
@@ -358,7 +350,7 @@ mod tests {
                 let seckey = Scalar::new(BigUint::from_bytes_be(&seckey_bytes));
                 let schnorr = Schnorr::new(seckey.clone());
 
-                let sig = schnorr.sign(&message, &aux_rand, &client_key);
+                let sig = schnorr.sign(&message, &aux_rand);
                 assert!(sig.is_ok());
                 let sig = sig.unwrap();
                 if sig.to_bytes() != expected_sig {
