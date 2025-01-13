@@ -64,6 +64,8 @@ impl Schnorr {
 
     /// Signs a message using the Schnorr signature scheme according to BIP-340.
     pub fn sign(&self, message: &[u8], aux_rand: &[u8]) -> Result<Signature, Box<dyn std::error::Error>> {
+        println!("Starting `sign` operation");
+        let start_total = Instant::now();
         let (pubkey, d) = self.get_public_key();
         let curve_order = get_curve_order();
         // Generate deterministic nonce k0 according to BIP-340
@@ -83,6 +85,7 @@ impl Schnorr {
 
         // Compute s = (k + e * d) % n
         let s = (k + e * d.value()) % get_curve_order();
+        println!("`sign` operation time: {:?}", start_total.elapsed());
 
         Ok(Signature {
             r_x: r.x,
