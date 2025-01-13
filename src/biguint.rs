@@ -249,7 +249,7 @@ impl Mul for BigUintFHE {
                 }
                 println!("Addition time: {:?}", start_add.elapsed());
 
-                println!("Total iteration time: {:?}", start_iter.elapsed());
+                println!("Total iteration time for {:?} / {:?}: {:?}", i + j + 1, result.len() - 1, start_iter.elapsed());
             }
         }
         println!("Total products time: {:?}", start_products.elapsed());
