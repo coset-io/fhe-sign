@@ -43,7 +43,7 @@ impl Schnorr {
     }
 
     /// Gets the public key with BIP-340 y-coordinate conventions
-    fn get_public_key(&self) -> (Point, Scalar) {
+    fn get_key_pair(&self) -> (Point, Scalar) {
         let generator = Point::get_generator();
         let public_key = generator.scalar_mul(&self.private_key);
 
@@ -66,10 +66,10 @@ impl Schnorr {
     pub fn sign(&self, message: &[u8], aux_rand: &[u8]) -> Result<Signature, Box<dyn std::error::Error>> {
         println!("Starting `sign` operation");
         let start_total = Instant::now();
-        let (pubkey, d) = self.get_public_key();
+        let (pubkey, privkey) = self.get_key_pair();
         let curve_order = get_curve_order();
         // Generate deterministic nonce k0 according to BIP-340
-        let k0 = compute_nonce(d.value(), &pubkey, message, aux_rand);
+        let k0 = compute_nonce(privkey.value(), &pubkey, message, aux_rand);
         let generator = Point::get_generator();
         let r = generator.scalar_mul(&Scalar::new(k0.clone()));
 
@@ -84,7 +84,7 @@ impl Schnorr {
         let e = compute_challenge(&r, &pubkey, message);
 
         // Compute s = (k + e * d) % n
-        let s = (k + e * d.value()) % get_curve_order();
+        let s = (k + e * privkey.value()) % get_curve_order();
         println!("`sign` operation time: {:?}", start_total.elapsed());
 
         Ok(Signature {
@@ -100,14 +100,14 @@ impl Schnorr {
 
         // Step 1: Get Public Key
         let start_public_key = Instant::now();
-        let (pubkey, d) = self.get_public_key();
+        let (pubkey, privkey) = self.get_key_pair();
         println!("`get_public_key` time: {:?}", start_public_key.elapsed());
 
         let curve_order = get_curve_order();
 
         // Step 2: Compute Nonce
         let start_nonce = Instant::now();
-        let k0 = compute_nonce(d.value(), &pubkey, message, aux_rand);
+        let k0 = compute_nonce(privkey.value(), &pubkey, message, aux_rand);
         println!("`compute_nonce` time: {:?}", start_nonce.elapsed());
 
         // Step 3: Compute R = kG
@@ -132,7 +132,7 @@ impl Schnorr {
 
         // Step 6: Compute s = (k + e * d) mod n using FHE operations
         let start_fhe_operations = Instant::now();
-        let d_fhe = BigUintFHE::new(d.value().clone(), client_key)?;
+        let d_fhe = BigUintFHE::new(privkey.value().clone(), client_key)?;
         let e_fhe = BigUintFHE::new(e.clone(), client_key)?;
         let k_fhe = BigUintFHE::new(k.clone(), client_key)?;
         let s_fhe_without_mod = k_fhe + (e_fhe * d_fhe);
@@ -289,7 +289,7 @@ mod tests {
         let seckey = Scalar::new(BigUint::from_bytes_be(&seckey_bytes));
         let schnorr = Schnorr::new(seckey);
         let sig = schnorr.sign(&message, &aux_rand);
-        let (pubkey, _) = schnorr.get_public_key();
+        let (pubkey, _) = schnorr.get_key_pair();
 
         assert!(sig.is_ok());
         let sig = sig.unwrap();
@@ -320,7 +320,7 @@ mod tests {
         let sig = schnorr.sign(&message, &aux_rand);
         assert!(sig.is_ok());
         let sig = sig.unwrap();
-        let (pubkey, _) = schnorr.get_public_key();
+        let (pubkey, _) = schnorr.get_key_pair();
 
         assert_eq!(sig.to_bytes(), expected_sig);
         assert!(Schnorr::verify(&message, &pubkey.x.value().to_bytes_be(), &expected_sig));
