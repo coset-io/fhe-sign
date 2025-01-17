@@ -83,7 +83,7 @@ impl Schnorr {
         // Compute challenge e = hash(R || P || message)
         let e = compute_challenge(&r, &pubkey, message);
 
-        // Compute s = (k + e * d) % n
+        // Compute s = (k + e * privkey) % n
         let s = (k + e * privkey.value()) % get_curve_order();
         println!("`sign` operation time: {:?}", start_total.elapsed());
 
@@ -130,15 +130,15 @@ impl Schnorr {
         let e = compute_challenge(&r, &pubkey, message);
         println!("`compute_challenge` time: {:?}", start_challenge.elapsed());
 
-        // Step 6: Compute s = (k + e * d) mod n using FHE operations
+        // Step 6: Compute s = (k + e * privkey) mod n using FHE operations
         let start_fhe_operations = Instant::now();
-        let d_fhe = BigUintFHE::new(privkey.value().clone(), client_key)?;
+        let privkey_fhe = BigUintFHE::new(privkey.value().clone(), client_key)?;
         let e_fhe = BigUintFHE::new(e.clone(), client_key)?;
         let k_fhe = BigUintFHE::new(k.clone(), client_key)?;
-        let s_fhe_without_mod = k_fhe + (e_fhe * d_fhe);
+        let s_fhe_without_mod = k_fhe + (e_fhe * privkey_fhe);
         let s_without_mod = s_fhe_without_mod.to_biguint(client_key);
         let s = s_without_mod % curve_order;
-        println!("FHE operations (`k + e * d mod n`) time: {:?}", start_fhe_operations.elapsed());
+        println!("FHE operations (`k + e * privkey mod n`) time: {:?}", start_fhe_operations.elapsed());
 
         // Step 7: Construct the Signature
         let start_construct_signature = Instant::now();
@@ -229,8 +229,8 @@ fn bytes_from_point(p: &Point) -> [u8; 32] {
 }
 
 /// Computes the nonce according to BIP-340 specification
-fn compute_nonce(d: &BigUint, pubkey: &Point, message: &[u8], aux_rand: &[u8]) -> BigUint {
-    let t = xor_bytes(&bytes_from_int(d), &tagged_hash(AUX_TAG, aux_rand));
+fn compute_nonce(privkey: &BigUint, pubkey: &Point, message: &[u8], aux_rand: &[u8]) -> BigUint {
+    let t = xor_bytes(&bytes_from_int(privkey), &tagged_hash(AUX_TAG, aux_rand));
     let mut nonce_input = Vec::new();
     nonce_input.extend_from_slice(&t);
     nonce_input.extend_from_slice(&bytes_from_point(pubkey));
