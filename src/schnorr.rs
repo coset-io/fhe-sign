@@ -107,6 +107,16 @@ impl Schnorr {
 
         // Step 2: Compute Nonce
         let start_nonce = Instant::now();
+        // problem: we do not want to involve private key in nonce computation, because it uses hash operation which is very expensive
+        // solution exploration:
+        // 1. since k0 is used as a random number, which is computed with private key and other message. this can generate a unique random number for each message.
+        // 2. if we can use other number rather than private key to generate k0, we can avoid the expensive hash operation. so we only need to calculate signature with private key(encrypted form) involved in the formula s = (k + e * privkey) mod n
+        // 3. considering our use case, alice store the main private key in encrypted form, then set access control rules, allow alice's working device to call the sign function, the working device also has a key pair which is visible to alice due to alice owns the working device. so we can use the working device's private key to generate k0. this avoid the expensive hash operation.
+        // 4. remind that we want to avoid the expensive hash operation, we need to use the working device's private key to in clear/unencrypted form, but we can not pass the private key as parameter to the sign function which happens onchain and publically visible to all. so we need the device to generate k0 with its private key offchain privately, and then pass k0 to the sign function.
+        // 5. addtional work for security reason
+        // 5.1 if the working device is compromised, the private key can be leaked. so we need to ensure the sign function is still secure, which means cracker can not get alice's private key from s = (k + e * privkey) mod n, which means k0 should be unique for each signature.
+        // 5.2 so we need to store the k0 values on chain, each sign operation need to check if the k0 is already used before.
+        // todo: 1. use k0 as parameter to the sign function. 2. check if the k0 is already used before.
         let k0 = compute_nonce(privkey.value(), &pubkey, message, aux_rand);
         println!("`compute_nonce` time: {:?}", start_nonce.elapsed());
 
