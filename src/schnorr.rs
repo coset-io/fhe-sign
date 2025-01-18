@@ -9,6 +9,29 @@ use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint32, FheUint64, C
 use crate::biguint::BigUintFHE;
 use std::time::Instant;
 
+// https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki
+
+// Input:
+// - The secret key sk: a 32-byte array
+// - The message m: a byte array
+// - Auxiliary random data a: a 32-byte array
+
+// The algorithm Sign(sk, m) is defined as:
+// - Let d' = int(sk)
+// - Fail if d' = 0 or d' ≥ n
+// - Let P = d'⋅G
+// - Let d = d' if has_even_y(P), otherwise let d = n - d' .
+// - Let t be the byte-wise xor of bytes(d) and hashBIP0340/aux(a)[11].
+// - Let rand = hashBIP0340/nonce(t || bytes(P) || m)[12].
+// - Let k' = int(rand) mod n[13].
+// - Fail if k' = 0.
+// - Let R = k'⋅G.
+// - Let k = k' if has_even_y(R), otherwise let k = n - k' .
+// - Let e = int(hashBIP0340/challenge(bytes(R) || bytes(P) || m)) mod n.
+// - Let sig = bytes(R) || bytes((k + ed) mod n).
+// - If Verify(bytes(P), m, sig) (see below) returns failure, abort[14].
+// - Return the signature sig.
+
 /// BIP-340 tag constants for domain separation
 const AUX_TAG: &[u8] = b"BIP0340/aux";
 const NONCE_TAG: &[u8] = b"BIP0340/nonce";
@@ -94,10 +117,10 @@ impl Schnorr {
     }
 
     /// Signs a message using the Schnorr signature scheme according to BIP-340.
-    pub fn sign_with_k0(&self, message: &[u8], k0: &BigUint) -> Result<Signature, Box<dyn std::error::Error>> {
+    pub fn sign_with_k0(&self, message: &[u8], k0: &BigUint, privkey: &Scalar) -> Result<Signature, Box<dyn std::error::Error>> {
         println!("Starting `sign` operation");
         let start_total = Instant::now();
-        let (pubkey, privkey) = self.get_key_pair();
+        let (pubkey, _) = self.get_key_pair();
         let curve_order = get_curve_order();
         // Generate deterministic nonce k0 according to BIP-340
         let generator = Point::get_generator();
@@ -375,7 +398,7 @@ mod tests {
         let schnorr = Schnorr::new(private_key.clone());
         let (pubkey, _) = schnorr.get_key_pair();
         let k0 = compute_nonce(&private_key.value(), &pubkey, &message, &aux_rand);
-        let sig_with_k0 = schnorr.sign_with_k0(&message, &k0).unwrap();
+        let sig_with_k0 = schnorr.sign_with_k0(&message, &k0, &private_key).unwrap();
 
         let sig = schnorr.sign(&message, &aux_rand).unwrap();
 
