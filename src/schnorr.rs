@@ -2,10 +2,9 @@ use sha2::{Sha256, Digest};
 use crate::scalar::{get_curve_order, Scalar, get_field_size};
 use crate::field::FieldElement;
 use crate::secp256k1::Point;
-use std::ops::Sub;
 use num_bigint::BigUint;
 use tfhe::prelude::*;
-use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint32, FheUint64, ClientKey, FheBool, CompressedServerKey};
+use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint32, ClientKey};
 use crate::biguint::BigUintFHE;
 use std::time::Instant;
 
