@@ -65,6 +65,14 @@ impl Schnorr {
     }
 
     /// Signs a message using the Schnorr signature scheme according to BIP-340.
+    ///
+    /// Arguments:
+    /// * `message` - The message to be signed as a byte slice
+    /// * `aux_rand` - The auxiliary random data as a byte slice
+    /// * `privkey` - The caller/owner's private key as a Scalar
+    ///
+    /// Returns:
+    /// * `Result<Signature, Box<dyn std::error::Error>>` - The Schnorr signature if successful, or an error if the operation fails
     pub fn sign(&self, message: &[u8], aux_rand: &[u8], privkey: &Scalar) -> Result<Signature, Box<dyn std::error::Error>> {
         println!("Starting `sign` operation");
         let start_total = Instant::now();
@@ -96,6 +104,14 @@ impl Schnorr {
     }
 
     /// Signs a message using the Schnorr signature scheme according to BIP-340.
+    ///
+    /// Arguments:
+    /// * `message` - The message to be signed as a byte slice
+    /// * `k0` - The pre-computed nonce value as a BigUint
+    /// * `privkey` - The caller/owner's private key as a Scalar
+    ///
+    /// Returns:
+    /// * `Result<Signature, Box<dyn std::error::Error>>` - The Schnorr signature if successful, or an error if the operation fails
     pub fn sign_with_k0(&self, message: &[u8], k0: &BigUint, privkey: &Scalar) -> Result<Signature, Box<dyn std::error::Error>> {
         println!("Starting `sign` operation");
         let start_total = Instant::now();
@@ -125,7 +141,17 @@ impl Schnorr {
         })
     }
 
+
     /// Signs a message using the Schnorr signature scheme according to BIP-340 with FHE.
+    ///
+    /// # Arguments
+    /// * `message` - The message to be signed as a byte slice
+    /// * `aux_rand` - The auxiliary random data as a byte slice
+    /// * `privkey` - The caller/owner's private key as a Scalar
+    /// * `client_key` - The FHE client key used for encryption/decryption
+    ///
+    /// # Returns
+    /// * `Result<Signature, tfhe::Error>` - The Schnorr signature if successful, or a TFHE error if encryption operations fail
     pub fn sign_fhe(&self, message: &[u8], aux_rand: &[u8], privkey: &Scalar, client_key: &ClientKey) -> Result<Signature, tfhe::Error> {
         let start_total = Instant::now();
         println!("Starting `sign_fhe` operation");
@@ -139,16 +165,6 @@ impl Schnorr {
 
         // Step 2: Compute Nonce
         let start_nonce = Instant::now();
-        // problem: we do not want to involve private key in nonce computation, because it uses hash operation which is very expensive
-        // solution exploration:
-        // 1. since k0 is used as a random number, which is computed with private key and other message. this can generate a unique random number for each message.
-        // 2. if we can use other number rather than private key to generate k0, we can avoid the expensive hash operation. so we only need to calculate signature with private key(encrypted form) involved in the formula s = (k + e * privkey) mod n
-        // 3. considering our use case, alice store the main private key in encrypted form, then set access control rules, allow alice's working device to call the sign function, the working device also has a key pair which is visible to alice due to alice owns the working device. so we can use the working device's private key to generate k0. this avoid the expensive hash operation.
-        // 4. remind that we want to avoid the expensive hash operation, we need to use the working device's private key to in clear/unencrypted form, but we can not pass the private key as parameter to the sign function which happens onchain and publically visible to all. so we need the device to generate k0 with its private key offchain privately, and then pass k0 to the sign function.
-        // 5. addtional work for security reason
-        // 5.1 if the working device is compromised, the private key can be leaked. so we need to ensure the sign function is still secure, which means cracker can not get alice's private key from s = (k + e * privkey) mod n, which means k0 should be unique for each signature.
-        // 5.2 so we need to store the k0 values on chain, each sign operation need to check if the k0 is already used before.
-        // todo: 1. use k0 as parameter to the sign function. 2. check if the k0 is already used before.
         let k0 = compute_nonce(privkey.value(), &pubkey, message, aux_rand);
         println!("`compute_nonce` time: {:?}", start_nonce.elapsed());
 
@@ -195,7 +211,94 @@ impl Schnorr {
         Ok(signature)
     }
 
+    /// Signs a message using the Schnorr signature scheme according to BIP-340 with FHE.
+    /// problem: we do not want to involve private key in nonce computation, because it uses hash operation which is very expensive
+    /// solution exploration:
+    /// 1. since k0 is used as a random number, which is computed with private key and other message. this can generate a unique random number for each message.
+    /// 2. if we can use other number rather than private key to generate k0, we can avoid the expensive hash operation. so we only need to calculate signature with private key(encrypted form) involved in the formula s = (k + e * privkey) mod n
+    /// 3. considering our use case, alice store the main private key in encrypted form, then set access control rules, allow alice's working device to call the sign function, the working device also has a key pair which is visible to alice due to alice owns the working device. so we can use the working device's private key to generate k0. this avoid the expensive hash operation.
+    /// 4. remind that we want to avoid the expensive hash operation, we need to use the working device's private key to in clear/unencrypted form, but we can not pass the private key as parameter to the sign function which happens onchain and publically visible to all. so we need the device to generate k0 with its private key offchain privately, and then pass k0 to the sign function.
+    /// 5. addtional work for security reason
+    /// 5.1 if the working device is compromised, the private key can be leaked. so we need to ensure the sign function is still secure, which means cracker can not get alice's private key from s = (k + e * privkey) mod n, which means k0 should be unique for each signature.
+    /// 5.2 so we need to store the k0 values on chain, each sign operation need to check if the k0 is already used before.
+
+    /// Signs a message using the Schnorr signature scheme according to BIP-340 with FHE and a pre-computed nonce k0.
+    ///
+    /// # Arguments
+    /// * `message` - The message to be signed as a byte slice
+    /// * `k0` - The pre-computed nonce value as a BigUint
+    /// * `privkey` - The caller's private key as a Scalar
+    /// * `privkey_fhe` - The owner's private key encrypted as a BigUintFHE
+    /// * `client_key` - The FHE client key used for encryption/decryption
+    ///
+    /// # Returns
+    /// * `Result<Signature, tfhe::Error>` - The Schnorr signature if successful, or a TFHE error if encryption operations fail
+    pub fn sign_fhe_with_k0(&self, message: &[u8], k0: &BigUint, privkey: &Scalar, privkey_fhe: &BigUintFHE, client_key: &ClientKey) -> Result<Signature, tfhe::Error> {
+        let start_total = Instant::now();
+        println!("Starting `sign_fhe` operation");
+
+        // Step 1: Get Public Key
+        let start_public_key = Instant::now();
+        let pubkey = get_public_key_with_even_y(privkey);
+        println!("`get_public_key` time: {:?}", start_public_key.elapsed());
+
+        let curve_order = get_curve_order();
+
+        // Step 2: Compute Nonce
+        let start_nonce = Instant::now();
+        println!("`compute_nonce` time: {:?}", start_nonce.elapsed());
+
+        // Step 3: Compute R = kG
+        let generator = Point::get_generator();
+        let start_r = Instant::now();
+        let r = generator.scalar_mul(&Scalar::new(k0.clone()));
+        println!("`scalar_mul` (computing R) time: {:?}", start_r.elapsed());
+
+        // Step 4: Adjust k based on R's y-coordinate parity
+        let start_adjust_k = Instant::now();
+        let k = if r.y.value() % BigUint::from(2u32) == BigUint::from(1u32) {
+            &curve_order - k0.clone()
+        } else {
+            k0.clone()
+        };
+        println!("`adjust_k` time: {:?}", start_adjust_k.elapsed());
+
+        // Step 5: Compute Challenge e = H(R || P || m)
+        let start_challenge = Instant::now();
+        let e = compute_challenge(&r, &pubkey, message);
+        println!("`compute_challenge` time: {:?}", start_challenge.elapsed());
+
+        // Step 6: Compute s = (k + e * privkey) mod n using FHE operations
+        let start_fhe_operations = Instant::now();
+        let e_fhe = BigUintFHE::new(e.clone(), client_key)?;
+        let k_fhe = BigUintFHE::new(k.clone(), client_key)?;
+        let s_fhe_without_mod = k_fhe + (e_fhe * privkey_fhe.clone());
+        let s_without_mod = s_fhe_without_mod.to_biguint(client_key);
+        let s = s_without_mod % curve_order;
+        println!("FHE operations (`k + e * privkey mod n`) time: {:?}", start_fhe_operations.elapsed());
+
+        // Step 7: Construct the Signature
+        let start_construct_signature = Instant::now();
+        let signature = Signature {
+            r_x: r.x,
+            s: Scalar::new(s),
+        };
+        println!("`construct_signature` time: {:?}", start_construct_signature.elapsed());
+
+        println!("Total `sign_fhe` operation time: {:?}", start_total.elapsed());
+
+        Ok(signature)
+    }
+
     /// Verifies a Schnorr signature according to BIP-340.
+    ///
+    /// Arguments:
+    /// * `message` - The message to be signed as a byte slice
+    /// * `pubkey_bytes` - The public key as a byte slice
+    /// * `sig_bytes` - The signature as a byte slice
+    ///
+    /// Returns:
+    /// * `bool` - True if the signature is valid, false otherwise
     pub fn verify(message: &[u8], pubkey_bytes: &[u8], sig_bytes: &[u8]) -> bool {
         // Check input lengths
         if pubkey_bytes.len() != 32 || sig_bytes.len() != 64 {
@@ -246,7 +349,7 @@ impl Schnorr {
 }
 
 
-/// Gets the public key with BIP-340 y-coordinate conventions
+/// Gets the public key with BIP-340 y-coordinate conventions which is even
 fn get_public_key_with_even_y(privkey: &Scalar) -> Point {
     let generator = Point::get_generator();
     let pubkey = generator.scalar_mul(&privkey);
@@ -276,7 +379,7 @@ fn tagged_hash(tag: &[u8], msg: &[u8]) -> Vec<u8> {
 
 /// Converts a BigUint to a 32-byte array in big-endian format
 fn bytes_from_int(n: &BigUint) -> [u8; 32] {
-    let mut bytes = n.to_bytes_be();
+    let bytes = n.to_bytes_be();
     let mut result = [0u8; 32];
     let start = 32 - bytes.len();
     result[start..].copy_from_slice(&bytes);
@@ -361,6 +464,32 @@ mod tests {
         let sig_fhe = sig_fhe.unwrap();
         assert_eq!(sig_fhe.to_bytes(), expected_sig);
         assert!(Schnorr::verify(&message, &pubkey.x.value().to_bytes_be(), &expected_sig));
+    }
+
+    #[test]
+    fn test_schnorr_fhe_with_k0() {
+        let config = ConfigBuilder::default().build();
+        let (client_key, server_keys) = generate_keys(config);
+        set_server_key(server_keys);
+
+        // Test vector from BIP-340
+        let seckey_bytes = hex::decode("0000000000000000000000000000000000000000000000000000000000000003").unwrap();
+        let message = hex::decode("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+        let aux_rand = hex::decode("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+
+        let privkey = Scalar::new(BigUint::from_bytes_be(&seckey_bytes));
+        let privkey_fhe = BigUintFHE::new(privkey.value().clone(), &client_key).unwrap();
+        let pubkey = get_public_key_with_even_y(&privkey);
+
+        let schnorr = Schnorr::new();
+        let k0 = compute_nonce(&privkey.value(), &pubkey, &message, &aux_rand);
+        // sign with k0
+        let sig_with_k0 = schnorr.sign_with_k0(&message, &k0, &privkey).unwrap();
+        // sign fhe with k0
+        let sig_fhe_with_k0 = schnorr.sign_fhe_with_k0(&message, &k0, &privkey, &privkey_fhe, &client_key).unwrap();
+
+        assert_eq!(sig_with_k0.to_bytes(), sig_fhe_with_k0.to_bytes());
+        assert!(Schnorr::verify(&message, &pubkey.x.value().to_bytes_be(), &sig_with_k0.to_bytes()));
     }
 
     #[test]
