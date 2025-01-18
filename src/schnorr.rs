@@ -56,40 +56,19 @@ impl Signature {
 
 /// The Schnorr signature scheme implementation following BIP-340
 pub struct Schnorr {
-    private_key: Scalar,
 }
 
 impl Schnorr {
     /// Creates a new Schnorr instance with the given private key.
-    pub fn new(private_key: Scalar) -> Self {
-        Self { private_key }
-    }
-
-    /// Gets the public key with BIP-340 y-coordinate conventions
-    fn get_key_pair(&self) -> (Point, Scalar) {
-        let generator = Point::get_generator();
-        let public_key = generator.scalar_mul(&self.private_key);
-
-        // Ensure the public key has an even y-coordinate as per BIP-340
-        if public_key.y.value() % BigUint::from(2u32) == BigUint::from(1u32) {
-            (
-                Point::new(
-                    public_key.x.clone(),
-                    FieldElement::new(get_field_size() - public_key.y.value(), get_field_size()),
-                    false
-                ),
-                Scalar::new(get_curve_order() - self.private_key.value())
-            )
-        } else {
-            (public_key, self.private_key.clone())
-        }
+    pub fn new() -> Self {
+        Self {}
     }
 
     /// Signs a message using the Schnorr signature scheme according to BIP-340.
-    pub fn sign(&self, message: &[u8], aux_rand: &[u8]) -> Result<Signature, Box<dyn std::error::Error>> {
+    pub fn sign(&self, message: &[u8], aux_rand: &[u8], privkey: &Scalar) -> Result<Signature, Box<dyn std::error::Error>> {
         println!("Starting `sign` operation");
         let start_total = Instant::now();
-        let (pubkey, privkey) = self.get_key_pair();
+        let pubkey = get_public_key_with_even_y(privkey);
         let curve_order = get_curve_order();
         // Generate deterministic nonce k0 according to BIP-340
         let k0 = compute_nonce(privkey.value(), &pubkey, message, aux_rand);
@@ -120,7 +99,7 @@ impl Schnorr {
     pub fn sign_with_k0(&self, message: &[u8], k0: &BigUint, privkey: &Scalar) -> Result<Signature, Box<dyn std::error::Error>> {
         println!("Starting `sign` operation");
         let start_total = Instant::now();
-        let (pubkey, _) = self.get_key_pair();
+        let pubkey = get_public_key_with_even_y(privkey);
         let curve_order = get_curve_order();
         // Generate deterministic nonce k0 according to BIP-340
         let generator = Point::get_generator();
@@ -147,13 +126,13 @@ impl Schnorr {
     }
 
     /// Signs a message using the Schnorr signature scheme according to BIP-340 with FHE.
-    pub fn sign_fhe(&self, message: &[u8], aux_rand: &[u8], client_key: &ClientKey) -> Result<Signature, tfhe::Error> {
+    pub fn sign_fhe(&self, message: &[u8], aux_rand: &[u8], privkey: &Scalar, client_key: &ClientKey) -> Result<Signature, tfhe::Error> {
         let start_total = Instant::now();
         println!("Starting `sign_fhe` operation");
 
         // Step 1: Get Public Key
         let start_public_key = Instant::now();
-        let (pubkey, privkey) = self.get_key_pair();
+        let pubkey = get_public_key_with_even_y(privkey);
         println!("`get_public_key` time: {:?}", start_public_key.elapsed());
 
         let curve_order = get_curve_order();
@@ -266,6 +245,24 @@ impl Schnorr {
     }
 }
 
+
+/// Gets the public key with BIP-340 y-coordinate conventions
+fn get_public_key_with_even_y(privkey: &Scalar) -> Point {
+    let generator = Point::get_generator();
+    let pubkey = generator.scalar_mul(&privkey);
+
+    // Ensure the public key has an even y-coordinate as per BIP-340
+    if pubkey.y.value() % BigUint::from(2u32) == BigUint::from(1u32) {
+        Point::new(
+            pubkey.x.clone(),
+            FieldElement::new(get_field_size() - pubkey.y.value(), get_field_size()),
+            false
+        )
+    } else {
+        pubkey
+    }
+}
+
 /// Computes the tagged hash according to BIP-340 specification.
 /// tagged_hash = SHA256(SHA256(tag) || SHA256(tag) || msg)
 fn tagged_hash(tag: &[u8], msg: &[u8]) -> Vec<u8> {
@@ -350,16 +347,16 @@ mod tests {
         let expected_sig = hex::decode("E907831F80848D1069A5371B402410364BDF1C5F8307B0084C55F1CE2DCA821525F66A4A85EA8B71E482A74F382D2CE5EBEEE8FDB2172F477DF4900D310536C0").unwrap();
 
         let seckey = Scalar::new(BigUint::from_bytes_be(&seckey_bytes));
-        let schnorr = Schnorr::new(seckey);
-        let sig = schnorr.sign(&message, &aux_rand);
-        let (pubkey, _) = schnorr.get_key_pair();
+        let schnorr = Schnorr::new();
+        let sig = schnorr.sign(&message, &aux_rand, &seckey);
+        let pubkey = get_public_key_with_even_y(&seckey);
 
         assert!(sig.is_ok());
         let sig = sig.unwrap();
         assert_eq!(sig.to_bytes(), expected_sig);
         assert!(Schnorr::verify(&message, &pubkey.x.value().to_bytes_be(), &expected_sig));
 
-        let sig_fhe = schnorr.sign_fhe(&message, &aux_rand, &client_key);
+        let sig_fhe = schnorr.sign_fhe(&message, &aux_rand, &seckey, &client_key);
         assert!(sig_fhe.is_ok());
         let sig_fhe = sig_fhe.unwrap();
         assert_eq!(sig_fhe.to_bytes(), expected_sig);
@@ -368,10 +365,6 @@ mod tests {
 
     #[test]
     fn test_schnorr_bip340() {
-        let config = ConfigBuilder::default().build();
-        let (client_key, server_keys) = generate_keys(config);
-        set_server_key(server_keys);
-
         // Test vector from BIP-340
         let seckey_bytes = hex::decode("0000000000000000000000000000000000000000000000000000000000000003").unwrap();
         let message = hex::decode("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
@@ -379,11 +372,11 @@ mod tests {
         let expected_sig = hex::decode("E907831F80848D1069A5371B402410364BDF1C5F8307B0084C55F1CE2DCA821525F66A4A85EA8B71E482A74F382D2CE5EBEEE8FDB2172F477DF4900D310536C0").unwrap();
 
         let seckey = Scalar::new(BigUint::from_bytes_be(&seckey_bytes));
-        let schnorr = Schnorr::new(seckey);
-        let sig = schnorr.sign(&message, &aux_rand);
+        let schnorr = Schnorr::new();
+        let sig = schnorr.sign(&message, &aux_rand, &seckey);
         assert!(sig.is_ok());
         let sig = sig.unwrap();
-        let (pubkey, _) = schnorr.get_key_pair();
+        let pubkey = get_public_key_with_even_y(&seckey);
 
         assert_eq!(sig.to_bytes(), expected_sig);
         assert!(Schnorr::verify(&message, &pubkey.x.value().to_bytes_be(), &expected_sig));
@@ -394,13 +387,13 @@ mod tests {
         let seckey_bytes = hex::decode("0000000000000000000000000000000000000000000000000000000000000003").unwrap();
         let message = hex::decode("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
         let aux_rand = hex::decode("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-        let private_key = Scalar::new(BigUint::from_bytes_be(&seckey_bytes));
-        let schnorr = Schnorr::new(private_key.clone());
-        let (pubkey, _) = schnorr.get_key_pair();
-        let k0 = compute_nonce(&private_key.value(), &pubkey, &message, &aux_rand);
-        let sig_with_k0 = schnorr.sign_with_k0(&message, &k0, &private_key).unwrap();
+        let privkey = Scalar::new(BigUint::from_bytes_be(&seckey_bytes));
+        let schnorr = Schnorr::new();
+        let pubkey = get_public_key_with_even_y(&privkey);
+        let k0 = compute_nonce(&privkey.value(), &pubkey, &message, &aux_rand);
+        let sig_with_k0 = schnorr.sign_with_k0(&message, &k0, &privkey).unwrap();
 
-        let sig = schnorr.sign(&message, &aux_rand).unwrap();
+        let sig = schnorr.sign(&message, &aux_rand, &privkey).unwrap();
 
         assert_eq!(sig.to_bytes(), sig_with_k0.to_bytes());
         assert!(Schnorr::verify(&message, &pubkey.x.value().to_bytes_be(), &sig_with_k0.to_bytes()));
@@ -431,9 +424,9 @@ mod tests {
                 let seckey_bytes = hex::decode(seckey_hex).unwrap();
                 let aux_rand = hex::decode(aux_rand_hex).unwrap();
                 let seckey = Scalar::new(BigUint::from_bytes_be(&seckey_bytes));
-                let schnorr = Schnorr::new(seckey.clone());
+                let schnorr = Schnorr::new();
 
-                let sig = schnorr.sign(&message, &aux_rand);
+                let sig = schnorr.sign(&message, &aux_rand, &seckey);
                 assert!(sig.is_ok());
                 let sig = sig.unwrap();
                 if sig.to_bytes() != expected_sig {
