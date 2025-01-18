@@ -529,10 +529,6 @@ mod tests {
 
     #[test]
     fn test_schnorr_vectors() {
-        let config = ConfigBuilder::default().build();
-        let (client_key, server_keys) = generate_keys(config);
-        set_server_key(server_keys);
-
         let csv_content = include_str!("../tests/test_vectors.csv");
         let mut all_passed = true;
 
