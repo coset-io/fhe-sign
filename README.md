@@ -101,11 +101,9 @@ Special test vectors for Schnorr signatures are included in `tests/test_vectors.
 
 ## Performance Considerations
 
-FHE operations are computationally intensive. Here are some benchmarks from our testing:
+FHE operations are computationally intensive. The entire signing time of Schnorr signature takes 4269 seconds (about 71 minutes). While this might seem long, it's important to note that this is a proof-of-concept implementation focusing on exploration rather than performance optimization.
 
-The entire singing time of Schnorr signature takes 4269 seconds.
-
-To better understand the time, here are the single operations:
+To better understand the time breakdown, here are the single operations:
 
 - add: 25.965747001s
 - mul: 76.051254698s
@@ -118,7 +116,10 @@ To better understand the time, here are the single operations:
 - decrypt div: 529.511µs
 - float div: 30ns
 
-These measurements were taken on AWS c5.24xlarge, with 96 vcpu, 192 GB memory, 20GB storage
+These measurements were taken on AWS c5.24xlarge (96 vCPU, 192 GB memory), providing a robust environment for FHE computations. Even with such powerful hardware, the operations remain time-intensive, highlighting both the current limitations and the potential for optimization in FHE technology.
+
+Note we did not enable the configuration as Zama FHEVM paper did, so the timing is not as good as them.
+
 
 ## License
 
