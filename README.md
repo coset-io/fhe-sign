@@ -101,16 +101,24 @@ Special test vectors for Schnorr signatures are included in `tests/test_vectors.
 
 ## Performance Considerations
 
-FHE operations are computationally intensive. Here are some typical operation times:
-- Addition: ~83 seconds
-- Multiplication: ~722 seconds
-- Shift operations: ~330 seconds
-- Minimum operations: ~38 seconds
+FHE operations are computationally intensive. Here are some benchmarks from our testing:
 
-Testing hardware:
-- System: MacOS
-- CPU: 2.6 GHz 6-Core Intel Core i7
-- Memory: 32 GB 2667 MHz DDR4
+The entire singing time of Schnorr signature takes 4269 seconds.
+
+To better understand the time, here are the single operations:
+
+- add: 25.965747001s
+- mul: 76.051254698s
+- shift: 45.566019345s
+- cast: 135.023µs
+- min: 25.71097148s
+- and: 6.418014644s
+- div: 1121.134781795s
+- decrypt: 186.764µs
+- decrypt div: 529.511µs
+- float div: 30ns
+
+These measurements were taken on AWS c5.24xlarge, with 96 vcpu, 192 GB memory, 20GB storage
 
 ## License
 
